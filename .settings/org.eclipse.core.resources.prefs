@@ -1,0 +1,11 @@
+eclipse.preferences.version=1
+encoding//code/deal_image.c=UTF-8
+encoding//code/deal_image.h=UTF-8
+encoding//code/encoder.c=UTF-8
+encoding//code/go.c=UTF-8
+encoding//code/pid.c=GBK
+encoding//code/pid.h=UTF-8
+encoding//libraries/zf_device=GBK
+encoding//libraries/zf_device/zf_device_wireless_uart.c=GBK
+encoding//libraries/zf_device/zf_device_wireless_uart.h=UTF-8
+encoding/<project>=UTF-8

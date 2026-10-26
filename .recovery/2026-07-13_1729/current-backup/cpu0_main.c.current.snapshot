@@ -1,0 +1,153 @@
+#include "zf_common_headfile.h"
+#pragma section all "cpu0_dsram"
+
+#define LCD_W   320
+#define LCD_H   204   // 188:120 等比例放大到接近满宽，剩下空间显示参�?
+#define IMAGE_TX_ENABLE       1
+#define IMAGE_TX_FRAME_DIV    1
+#define PARAM_TX_ENABLE       1
+#define IMAGE_TX_RAW_ENABLE   0
+
+
+char wireless_buf[64];
+static int zhen = 0;
+#define OSCILLOSCOPE_CHANNEL_NUM 11
+
+seekfree_assistant_oscilloscope_struct oscilloscope_config;
+float oscilloscope_buffer[OSCILLOSCOPE_CHANNEL_NUM];
+extern volatile uint8 oscilloscope_send_flag;
+
+static uint16 debug_frame_id = 0;
+volatile uint8 image_frame_ready = 0;
+volatile uint8 image_cpu1_busy = 0;
+volatile uint8 image_cpu0_using = 0;
+volatile uint16 image_processed_frame_id = 0;
+
+int core0_main (void)
+{
+    clock_init();
+    debug_init();
+    // 此处编写用户代码 例如外设初始化代码等
+    ips200_set_dir(IPS200_CROSSWISE_180); // 需要先横屏 不然显示不下
+    ips200_init(IPS200_TYPE_SPI);
+    imu660rc_init(IMU660RC_QUARTERNION_DISABLE);
+    while(1)
+    {
+        if(mt9v03x_init())
+            gpio_toggle_level(P20_8);
+        else
+            break;
+        system_delay_ms(500);
+    }
+  negative_pressure_init();
+   negative_pressure_set_us(1500);
+   system_delay_ms(3000);
+   Gyro_Offset_Init();
+    motor_init();
+    encoder_init();
+
+#define WIFI_SSID_TEST      "UP-106"
+#define WIFI_PASSWORD_TEST  "106106106"
+
+    while (wifi_spi_init(WIFI_SSID_TEST, WIFI_PASSWORD_TEST))
+    {
+        ips200_show_string(0, 40, "wifi fail");
+        system_delay_ms(100);
+    }
+
+    ips200_show_string(0, 40, "wifi ok");
+
+#if (WIFI_SPI_AUTO_CONNECT == 0)
+    while (wifi_spi_socket_connect("TCP",
+    WIFI_SPI_TARGET_IP, "8086", "8087"))
+    {
+        system_delay_ms(100);
+    }
+#endif
+
+    seekfree_assistant_interface_init(SEEKFREE_ASSISTANT_WIFI_SPI);
+
+    debug_camera_init();
+
+
+    wireless_uart_init();
+ //   seekfree_assistant_interface_init(SEEKFREE_ASSISTANT_WIRELESS_UART);
+    // seekfree_assistant_camera_config(
+      // &image_tx_camera,
+       //SEEKFREE_ASSISTANT_CAMERA_TYPE_GRAY,
+       //XM,
+       //YM,
+       //image_tx_buffer);
+
+
+    seekfree_assistant_oscilloscope_config(
+            &oscilloscope_config,
+            OSCILLOSCOPE_CHANNEL_NUM,
+            oscilloscope_buffer);
+
+    pit_ms_init(CCU60_CH0, 5);
+    Motor_Speed_Reset();
+
+
+    // 此处编写用户代码 例如外设初始化代码等
+    cpu_wait_event_ready();         // 等待所有核心初始化完毕
+
+    // ================== 4. 后台主循�?(大状态机) ==================
+    while (TRUE)
+    {
+        debug_frame_id = image_processed_frame_id;
+
+#if PARAM_TX_ENABLE
+        if (oscilloscope_send_flag)
+        {
+            oscilloscope_send_flag = 0;
+            oscilloscope_buffer[0] = (float)debug_turn_cmd;
+            oscilloscope_buffer[1] = (float)A;
+            oscilloscope_buffer[2] = (float)debug_road_state;
+          /*  oscilloscope_buffer[3] = (float)turn_yaw_deg;
+            oscilloscope_buffer[4] = (float)white_sum;
+            oscilloscope_buffer[5] = (float)speed_out;
+            oscilloscope_buffer[6] = (float)l_lost_tip;*/
+                      oscilloscope_buffer[3] = (float)motorL_Set;
+                        oscilloscope_buffer[4] = (float)motorR_Set;
+                        oscilloscope_buffer[5] = (float)Actual_Speed_L;
+                        oscilloscope_buffer[6] = (float)Actual_Speed_R;
+            oscilloscope_buffer[7] = (float)Length;
+            oscilloscope_buffer[8] = (float)IF;
+            oscilloscope_buffer[9] = (float)Error;
+            oscilloscope_buffer[10] = (float)debug_frame_id;
+            seekfree_assistant_oscilloscope_send(&oscilloscope_config);
+        }
+#endif
+
+#if IMAGE_TX_ENABLE
+        if (debug_camera_has_frame())
+        {
+            static uint8 image_tx_frame_count = 0;
+            if (++image_tx_frame_count >= IMAGE_TX_FRAME_DIV)
+            {
+                image_tx_frame_count = 0;
+                debug_camera_send();
+            }
+            else
+            {
+                debug_camera_drop();
+            }
+        }
+#endif
+
+        static uint16 last_lcd_frame = 0xFFFF;
+        if (last_lcd_frame != debug_frame_id)
+        {
+            last_lcd_frame = debug_frame_id;
+            ips200_show_int(0, 210, Error, 5);
+            ips200_show_int(40, 210, A, 5);
+            ips200_show_int(70, 210, debug_turn_cmd, 5);
+        }
+
+        image_cpu0_using = 0;
+    }
+}
+#pragma section all restore
+
+

@@ -1,0 +1,42 @@
+{
+  "backend": "opencv",
+  "fps": 33.5453211265637,
+  "frame_count": 16,
+  "duration": 0.4769666666666667,
+  "width": 2558,
+  "height": 1464,
+  "times": [
+    0.0,
+    1.0,
+    2.0,
+    3.0,
+    4.0,
+    5.0,
+    6.0
+  ],
+  "files": [
+    "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds\\full\\t000000.png"
+  ],
+  "video": "C:\\Users\\丁子皓\\OneDrive\\Desktop\\赛道图\\97.mp4",
+  "output": "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds",
+  "full_files": [
+    "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds\\full\\t000000.png",
+    "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds\\full\\t001000.png",
+    "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds\\full\\t002000.png",
+    "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds\\full\\t003000.png",
+    "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds\\full\\t004000.png",
+    "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds\\full\\t005000.png",
+    "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds\\full\\t006000.png"
+  ],
+  "camera_files": [
+    "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds\\camera\\t000000.png",
+    "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds\\camera\\t001000.png",
+    "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds\\camera\\t002000.png",
+    "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds\\camera\\t003000.png",
+    "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds\\camera\\t004000.png",
+    "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds\\camera\\t005000.png",
+    "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds\\camera\\t006000.png"
+  ],
+  "sheet_full": "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds\\sheet_full.png",
+  "sheet_camera": "E:\\TCB\\2\\Chezi\\zf_video_analysis\\case97_seconds\\sheet_camera.png"
+}

@@ -1,0 +1,4197 @@
+#include "zf_common_headfile.h"
+
+enum ImgFlag IF = straightlineS;
+enum ImgFlag IF_L = straightlineS;
+//TURN_EXIT_ANGLE_DEG_1 调整，还有pid里面几个也要调整
+//uint8_t Turn_Command[] = {0,0};
+//定义路线动作0代表左转1代表右转2代表直行忽略岔路
+//uint8_t Turn_Command[] = {1,0,2,0,2,2,0,2,0,1,2,2,2,2};走得稍微复杂点
+//uint8_t Turn_Command[] = {2,2,2,2,2,2,2,2,2,2,2}; //走大圈
+uint8_t Turn_Command[] = {0, 2, 0, 0, 0, 1, 1, 1, 2, 0, 0, 1, 2, 2, 1, 2, 1, 2,2,2,2};
+//uint8_t Turn_Command[] = {2, 2, 0, 1, 2, 0, 2,2, 2, 0, 1, 2, 0, 2,2, 2, 0, 1, 2, 0, 2};
+//uint8_t Turn_Command[] = {2, 0, 2, 2, 0, 2, 2, 0, 2, 2, 0, 2, 2, 0, 2, 2, 0, 2, 2, 0, 2, 2, 0, 2, 2, 0, 2, 2, 0, 2, 2, 0, 2, 2, 0, 2, 2, 0, 2, 2, 0, 2, 2, 0, 2, 2, 0, 2, 2, 0, 2, 2, 0, 2, 2, 0, 2, 2, 0, 2};
+//uint8_t Turn_Command[] = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};// 比赛前人工看着电路图写�?
+//uint8_t Turn_Comm//and[] = {0, 2, 0, 0, 2, 0, 0, 2, 0, 0, 2, 0};
+uint8_t Junction_Index = 0; // 当前走到第几个路口了
+float Last_Junction_Length = 0; // 上次遇到路口时的里程（用于防抖）
+
+volatile Elements_Mode elements_Mode = NO; //元素识别
+volatile Elements_Lock elements_Lock[10] = {Empty_};
+volatile Annulus_Mode Annulus_mode = Differential; //六边形弯�?
+int elements_index = 0;
+
+//因为define里不能有.，所�?.yaw就当�?
+#define CLOSE_TURN_DIST_CM       50.0f
+#define CLOSE_TURN_HOLD_FRAMES   1
+
+static float Last_Turn_End_Length = -1.0f;
+static float Eighth_Turn_End_Length = -1.0f;
+static uint8_t close_turn_hold_cnt = 0;
+static uint8_t right_curve_seen_8_to_9 = 0;
+float Length = 0;
+float Last_Valid_Junction_Length = -100.0f;
+static float Last_panduan_Length = -100.0f;
+
+volatile uint8_t stopline_flag = 0; //停车�?
+uint8_t stop_num = 0;
+uint8_t Annulus_flag = 0;
+float Annulus_Zero = 0;
+float Annulus_Yaw = 0;
+int Annulus_Curvature[5] = {10, 10, 10, 10, 10};
+int Annulus_num = 0;
+uint8_t dealimg_finish_flag = 0;
+int deal_runing = 0;
+int dealimg_time = 0;
+uint8_t disappear_flag = 0;
+int disappear_num = 0;
+
+uint8_t search_break_reason = 0;
+
+int Disappear_angle_L[3];
+int Disappear_angle_R[3];
+float Start_angle = 0;
+
+int disappear_total = 3;
+float Disappear_Zero = 0;
+float Disappear_Yaw = 0;
+float Disappear_Length = 0;
+volatile RUN_Dir run_dir = Right;
+int Disappear_Dir_L[3][3] = {{0}};
+int Disappear_Dir_R[3][3] = {{0}};
+float Disappear_Position = 0;
+int Curvature = 10;
+
+uint16_t histogram[256];
+uint8_t previousThreshold = 0;
+uint8_t nowThreshold = 0;
+int minGrayscale = 40;
+int maxGrayscale = 160;
+int minGray = 0;
+int maxGray = 0;
+uint8_t minThreshold = 85;
+uint8_t maxThreshold = 160;
+uint8_t img_threshold_group[3]; //划分阈值区�?  上中�?
+uint8_t close_Threshold = 0;
+uint8_t mid_Threshold = 0;
+uint8_t far_Threshold = 4;
+uint16_t EXP_TIME = 255;
+int UD_OFFSET_DEF = 0;
+
+uint8_t top_straight_error_fuse = 0;
+
+uint8_t imgTran[IMG_H][IMG_W];
+uint8_t imgOSTU[YM][XM];
+uint8_t white_num_row[YM];
+uint8_t white_num_col[XM];
+uint8_t white_row_max[2], white_row_min[2];
+uint8_t white_col_max[2], white_col_min[2];
+uint8_t mid_line[YM] = {INVALID_POS};
+uint8_t Make_up_num[YM] = {0};
+
+uint8_t start_center_last = XM / 2;
+uint8_t start_center = XM / 2;
+uint8_t start_point_l = 0;
+uint8_t start_point_r = XX;
+uint8_t start_center_y = 0;
+uint8_t start_center_x = XM / 2;
+
+uint8_t end_center = XM / 2;
+uint8_t end_center_x = XM / 2;
+uint8_t end_center_y = Deal_Top;
+
+uint8_t l_lost_tip = 0;
+uint8_t r_lost_tip = 0;
+uint8_t t_lost_tip = 0;
+uint8_t b_lost_tip = 0;
+
+uint8_t b_lost_num = 0;
+uint8_t t_lost_num = 0;
+uint8_t l_lost_num = 0;
+uint8_t r_lost_num = 0;
+
+uint8_t Stop_line = 0;
+uint8_t dis_Solidline = 0;
+uint16_t b_center[3] = {0};
+uint16_t l_center[3] = {0};
+uint16_t r_center[3] = {0};
+uint16_t t_center[3] = {0};
+
+int Deal_W = XX;
+int Deal_H = YY;
+
+float start_time = 0;
+float end_time = 0;
+float deal_time = 0;
+float turn_gap_cm = -1;
+uint8_t close_turn;
+
+float Out_Annulus_Length = 0;
+float Stopline_Position = 0;
+float Stopline_Judge = 300;
+volatile float Stop_Length = 0;
+float MIN_JUNCTION_DIST = 40;
+
+volatile uint8_t debug_road_state = 0; // 0左拐 1右拐 2右拐 3普通处�?4直行通过
+volatile uint8_t debug_turn_cmd = 255;
+
+int EXTERN_sum[16] = {0};
+int Goto_U = 1;
+int Goto_D = 2;
+int Goto_L = 4;
+int Goto_R = 8;
+int UD = 3;
+int UL = 5;
+int UR = 9;
+int DL = 6;
+int DR = 10;
+int LR = 12;
+int UDL = 7;
+int UDR = 11;
+int ULR = 13;
+int DLR = 14;
+int UDLR = 15;
+int EXTERN_ROW[16][YM] = {{0}};
+int EXTERN_L = 0;
+int EXTERN_R = 0;
+const float white_width[YM] = {17, 17, 17, 17, 17, 16, 16, 16, 16, 16, 16, 16, 16, 15, 15, 15, 15, 14, 14, 14, 14, 14,
+        14, 13, 13, 13, 13, 13, 13, 13, 12, 12, 12, 12, 12, 11, 11, 11, 11, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 9,
+        9, 9, 9, 9, 9, 8, 8, 8, 8, 8, 7, 7, 7, 7, 6, 6, 6, 6, 5, 5};
+
+const float Length_5cm[YM] = {30, 29, 28, 28, 27, 27, 26, 26, 25, 25, 25, 25, 25, 25, 24, 24, 24, 23, 23, 23, 22, 22,
+        22, 22, 21, 21, 21, 20, 20, 20, 19, 19, 19, 18, 18, 18, 17, 17, 16, 16, 15, 15, 15, 14, 14, 14, 13, 13, 12, 12,
+        11, 11, 11, 11, 11, 10, 10, 10, 9, 9, 9, 8, 8, 8, 8, 7, 7, 7, 7, 7};
+
+typedef enum
+{
+    ROAD_LEFT_TURN, ROAD_RIGHT_TURN, ROAD_STRAIGHT, ROAD_STRAIGHT_PASS,
+} Road_Turn_State;
+
+typedef enum
+{
+    NORMAL_CURVE_IDLE, NORMAL_CURVE_LEFT, NORMAL_CURVE_RIGHT,
+} Normal_Curve_State;
+
+static Normal_Curve_State normal_curve_state = NORMAL_CURVE_IDLE;
+static uint8_t normal_curve_exit_cnt = 0;
+static uint8_t final_right_curve_used = 0;
+static uint8_t final_right_curve_active = 0;
+
+static Road_Turn_State road_turn_state = ROAD_STRAIGHT;
+static uint8_t turn_confirm_cnt = 0;
+static uint8_t turn_exit_cnt = 0;
+static uint8_t top_forward_found = 0;
+static float Last_Diode_Filter_Length = -100.0f;
+
+#define NORMAL_CURVE_EXIT_ANGLE_DEG   75.0f
+#define TURN_EXIT_ANGLE_DEG   68.0f
+#define TURN_EXIT_ANGLE_DEG_1  54.0f
+
+float turn_yaw_deg = 0.0f;          // 调试用：当前弯累计转过的角度
+static uint32 turn_yaw_last_us = 0;
+static uint8_t turn_yaw_enable = 0;
+
+static float abs_f (float x)
+{
+    return x >= 0 ? x : -x;
+}
+
+static void Turn_Yaw_Reset (void)
+{
+    turn_yaw_deg = 0.0f;
+    turn_yaw_last_us = system_getval_us();
+    turn_yaw_enable = 1;
+}
+
+static void Turn_Yaw_Stop (void)
+{
+    turn_yaw_enable = 0;
+    turn_yaw_deg = 0.0f;
+    turn_yaw_last_us = system_getval_us();
+}
+
+static void Turn_Yaw_Update (void)
+{
+    if (!turn_yaw_enable)
+    {
+        turn_yaw_last_us = system_getval_us();
+        return;
+    }
+
+    uint32 now = system_getval_us();
+    uint32 dt_us = now - turn_yaw_last_us;
+    turn_yaw_last_us = now;
+
+    // 防止调试卡顿/断帧导致一次积分爆�?
+    if (dt_us > 50000)
+    {
+        dt_us = 5000;
+    }
+
+    // 逐飞库函数：原始陀螺�?-> °/s
+    turn_yaw_deg += imu660rc_gyro_transition(Actual_Z) * ((float) dt_us * 0.000001f);
+}
+void Turn_Yaw_Task (void)
+{
+    Turn_Yaw_Update();
+}
+static uint8_t Turn_Yaw_Enough (void)
+{
+
+    if (debug_turn_cmd == 6 || debug_turn_cmd == 7)
+      {
+          return abs_f(turn_yaw_deg) >= TURN_EXIT_ANGLE_DEG_1;
+      }
+    return abs_f(turn_yaw_deg) >= TURN_EXIT_ANGLE_DEG;
+}
+static uint8_t Turn_Yaw_Enough_MUCH (void)
+{
+    return abs_f(turn_yaw_deg) >= TURN_EXIT_ANGLE_DEG_1;
+}
+static void Normal_Curve_Force_Exit (void)
+{
+    if (normal_curve_state == NORMAL_CURVE_IDLE)
+    {
+        return;
+
+    }
+
+    normal_curve_state = NORMAL_CURVE_IDLE;
+    normal_curve_exit_cnt = 0;
+
+    // 只有普通弯自己开着角度积分时才停掉
+    if (road_turn_state == ROAD_STRAIGHT)
+    {
+        Turn_Yaw_Stop();
+    }
+}
+/******************************************************************************
+ * 函数名称     : standard
+ * 描述        : 一系列初始的标准化处理
+ * 进入参数     : voidֵ
+ * 返回参数     : void
+ ******************************************************************************/
+void standard (void) //图像一系列初始�?
+{
+    Deal_W = XX;
+    Deal_H = YY;
+    stopline_flag = 0;
+    stop_num = 0;
+    //  Annulus_flag = 0;
+    //  Annulus_num = 0;
+    //  Annulus_Zero = 0;
+    //  Annulus_Yaw = 0;
+    //  disappear_flag = 0;
+    //  disappear_num = 0;
+    // disappear_total = 3;
+    elements_index = 0;
+    Junction_Index = 0;
+    Last_Junction_Length = -100.0f;
+    Eighth_Turn_End_Length = -1.0f;
+    right_curve_seen_8_to_9 = 0;
+    final_right_curve_used = 0;
+    final_right_curve_active = 0;
+}
+/******************************************************************************
+ * 函数名称     : my_abs
+ * 描述        : 取绝对值函�?
+ * 进入参数     : value
+ * 返回参数     : 绝对�?
+ ******************************************************************************/
+int my_abs (int value)
+{
+    if (value >= 0)
+        return value;
+    else
+        return -value;
+}
+
+/******************************************************************************
+ * 函数名称     : getGrayscaleHistogram
+ * 描述        : 灰度直方图统�?
+ * 进入参数     : void
+ * 返回参数     : void
+ ******************************************************************************/
+void getGrayscaleHistogram (void) //需要保�?
+{
+    memset(histogram, 0, sizeof(histogram));
+    minGray = 255;
+    maxGray = 0;
+    uint8_t *ptr = &mt9v03x_image[IMG_H - YM][0];
+    uint8_t *ptrEnd = &mt9v03x_image[IMG_H - 1][_IMG_W] + 1;
+    while (ptr != ptrEnd)
+    {
+        minGray = *ptr < minGray ? *ptr : minGray;
+        maxGray = *ptr > maxGray ? *ptr : maxGray;
+        ++histogram[*ptr++];
+    }
+}
+
+/******************************************************************************
+ * 函数名称     : getOSTUThreshold
+ * 描述        : 大津�?
+ * 进入参数     : void
+ * 返回参数     : nowThreshold 大津法阈�?
+ ******************************************************************************/
+uint8_t getOSTUThreshold (void)
+{
+    getGrayscaleHistogram();
+
+    uint32_t sum = 0;
+    uint32_t valueSum = 0;
+    uint64_t sigma = 0;
+    uint64_t maxSigma = 0;
+
+    int32_t u1 = 0;
+    int32_t u2 = 0;
+
+    uint8_t min = minGray;
+    uint8_t max = maxGray;
+
+    if (max < minThreshold)
+    {
+        return minThreshold;
+    }
+
+    if (min > maxThreshold)
+    {
+        return maxThreshold;
+    }
+
+    min = min < minGrayscale ? minGrayscale : min;
+    max = max > maxGrayscale ? maxGrayscale : max;
+
+    for (uint16_t i = min; i <= max; ++i)
+    {
+        sum += histogram[i];
+        valueSum += histogram[i] * i;
+    }
+
+    if (sum == 0)
+    {
+        return previousThreshold;
+    }
+
+    uint32_t lowSum = 0;
+    uint32_t lowValueSum = 0;
+
+    for (uint16_t i = min; i <= max; ++i)
+    {
+        lowSum += histogram[i];
+        lowValueSum += histogram[i] * i;
+
+        uint32_t cnt1 = lowSum;
+        uint32_t cnt2 = sum - lowSum;
+
+        if (cnt1 == 0 || cnt2 == 0)
+        {
+            continue;
+        }
+
+        u1 = (int32_t) (lowValueSum / cnt1);
+        u2 = (int32_t) ((valueSum - lowValueSum) / cnt2);
+
+        float w1 = (float) cnt1 / sum;
+        float w2 = (float) cnt2 / sum;
+
+        sigma = (uint64_t) (w1 * w2 * (u1 - u2) * (u1 - u2));
+
+        if (sigma >= maxSigma)
+        {
+            maxSigma = sigma;
+            nowThreshold = (uint8_t) i;
+        }
+    }
+
+    nowThreshold = nowThreshold < minThreshold ? minThreshold : nowThreshold;
+    nowThreshold = nowThreshold > maxThreshold ? maxThreshold : nowThreshold;
+
+    previousThreshold = nowThreshold;
+    return nowThreshold;
+}
+/******************************************************************************
+ * 函数名称     : Get_imgOSTU
+ * 描述         :得到大津法二值化处理图像，图像转�?
+ * 进入参数     : void
+ * 返回参数     : void
+ ******************************************************************************/
+void Get_imgOSTU (void)
+{
+    memset(imgOSTU, Black, sizeof(imgOSTU));
+    memset(white_num_row, 0, sizeof(white_num_row));
+    memset(white_num_col, 0, sizeof(white_num_col));
+
+    img_threshold_group[0] = nowThreshold + close_Threshold;
+    img_threshold_group[1] = nowThreshold + mid_Threshold;
+    img_threshold_group[2] = nowThreshold - far_Threshold;
+
+    int k = 0; // 这个 k 专门用来控制阈值分组，别动�?
+    int Loop[9][2] = {{0, 1}, {1, 1}, {1, 0}, {1, -1}, {0, -1}, {-1, -1}, {-1, 0}, {-1, 1}};
+
+    for (int i = 0; i <= YY; i++)
+    {
+        if (i == YY / 3)
+            k = 1;
+        else if (i == YY * 2 / 3)
+            k = 2;
+
+        for (int j = 0; j <= XX; j++)
+        {
+            if (mt9v03x_image[_IMG_H - i][j] >= img_threshold_group[k])
+            {
+                int White_num = 0;
+                int Black_num = 0;
+
+                // 【修改点】把这里�?int k 改成 int m
+                for (int m = 0; m <= 8; m++)
+                {
+                    // 【修改点】下面的 Loop[k] 也要改成 Loop[m]
+                    int x = j + Loop[m][0];
+                    int y = i + Loop[m][1];
+
+                    if (x < 0 || x > XX || y < 0 || y > YY)
+                    {
+                        White_num++;
+                    }
+                    else if (imgOSTU[y][x] == White)
+                    {
+                        White_num = 8;
+                        break;
+                    }
+                    else if (mt9v03x_image[_IMG_H - y][x] >= nowThreshold)
+                    {
+                        White_num++;
+                    }
+                    else
+                    {
+                        Black_num++;
+                    }
+                    if (Black_num >= 2)
+                    {
+                        break;
+                    }
+                }
+
+                if (White_num >= 8)
+                {
+                    imgOSTU[i][j] = White;
+                    white_num_row[i]++;
+                    white_num_col[j]++;
+
+                    // 【修改点】这里的循环变量也顺便改了，防止混淆
+                    for (int m = 0; m <= 8; m++)
+                    {
+                        int x = j + Loop[m][0];
+                        int y = i + Loop[m][1];
+                        if (x < 0 || x > XX || y < 0 || y > YY)
+                        {
+                            // �?
+                        }
+                        else if (imgOSTU[y][x] != White)
+                        {
+                            imgOSTU[y][x] = White;
+                            white_num_row[y]++;
+                            white_num_col[x]++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/******************************************************************************
+ * 函数名称     : Draw_HeiKuang
+ * 描述         : 绘制四周物理黑墙，防止爬线越界，并挤压边缘白点以触发丢线特征
+ ******************************************************************************/
+void Draw_Heikuang (void)
+{
+    // 1. 处理上下边界
+    for (uint8_t x = 0; x <= XX; x++)
+    {
+        // 底部白点挤压
+        if (imgOSTU[Deal_Bottom - 1][x] == White || imgOSTU[Deal_Bottom - 2][x] == White)
+        {
+            imgOSTU[Deal_Bottom][x] = White;
+        }
+        imgOSTU[Deal_Bottom - 1][x] = Black;
+        imgOSTU[Deal_Bottom - 2][x] = Black;
+
+        // 顶部白点挤压
+        if (imgOSTU[Deal_Top + 1][x] == White || imgOSTU[Deal_Top + 2][x] == White)
+        {
+            imgOSTU[Deal_Top][x] = White;
+        }
+        imgOSTU[Deal_Top + 1][x] = Black;
+        imgOSTU[Deal_Top + 2][x] = Black;
+    }
+
+    // 2. 处理左右边界
+    for (uint8_t y = 0; y <= Deal_Top; y++)
+    {
+        // 左侧白点挤压
+        if (imgOSTU[y][Deal_Left - 1] == White || imgOSTU[y][Deal_Left - 2] == White)
+        {
+            imgOSTU[y][Deal_Left] = White;
+        }
+        imgOSTU[y][Deal_Left - 1] = Black;
+        imgOSTU[y][Deal_Left - 2] = Black;
+
+        // 右侧白点挤压
+        if (imgOSTU[y][Deal_Right + 1] == White || imgOSTU[y][Deal_Right + 2] == White)
+        {
+            imgOSTU[y][Deal_Right] = White;
+        }
+        imgOSTU[y][Deal_Right + 1] = Black;
+        imgOSTU[y][Deal_Right + 2] = Black;
+    }
+}
+#define START_UP_DEPTH      22
+#define START_UP_MARGIN     5
+#define START_UP_MIN_ROWS   15
+#define START_MIN_W         12
+
+typedef struct
+{
+    int l;
+    int r;
+    int mid;
+    int support;
+} StartBlock;
+static int block_support (uint8_t y0, int l, int r)
+{
+    int rows = 0;
+
+    int xl = l - START_UP_MARGIN;
+    int xr = r + START_UP_MARGIN;
+
+    if (xl < Deal_Left)
+        xl = Deal_Left;
+    if (xr > Deal_Right)
+        xr = Deal_Right;
+
+    for (int y = y0 + 1; y <= y0 + START_UP_DEPTH && y <= Deal_Top; y++)
+    {
+        int cnt = 0;
+
+        for (int x = xl; x <= xr; x++)
+        {
+            if (imgOSTU[y][x] == White)
+            {
+                cnt++;
+            }
+        }
+
+        if (cnt >= 5)
+        {
+            rows++;
+        }
+    }
+
+    return rows;
+}
+/******************************************************************************
+ * 函数名称     :uint8_t get_start_point(void)
+ * 描述         :寻找左右边界起点
+ * 进入参数     : void
+ * 返回参数     ：start_center_x找到左右边界�?未找到左右边�?
+ *使用示例     ：get_start_point();
+ ******************************************************************************/
+uint8_t get_start_point (void)
+{
+    b_lost_tip = 0;  //底端边界点初始化
+    start_center_y = 0;  //起始行数初始�?
+    uint8_t l_found = 0, r_found = 0;  //清零
+    uint32_t l_point = 0, r_point = 0;
+    for (uint8_t i = Deal_Bottom; i <= Deal_Bottom + 30; i++)  //从下往上寻找可寻边界行�?
+    {
+        if (white_num_row[i] >= 9 && white_num_row[i + 1] >= 9) //白点数大�?，开始寻找边�?
+        {
+            start_center_y = i;
+            //从左向右，先找黑白跳变点
+            for (uint8_t i = 0; i < XX - 1; i++)
+            {
+                if (imgOSTU[start_center_y][i + 1] == White && imgOSTU[start_center_y][i] == Black)
+                { //找到左边起点
+                    l_point = i;
+                    l_found = 1;
+                    break;
+                }
+            }
+            //从右向左，先找黑白跳变点
+            for (uint8_t i = XX; i > 0 + 1; i--)
+            {
+                if (imgOSTU[start_center_y][i - 1] == White && imgOSTU[start_center_y][i] == Black)
+                { //找到右边起点
+                    r_point = i;
+                    r_found = 1;
+                    break;
+                }
+            }
+            if (r_found && l_found)
+            {
+                break;
+            }
+        }
+    }
+//如果左右边界之间存在黑色区块,进行处理判断，将小区域块删除
+//    if(r_point - l_point - 1 > white_num_row[start_center_y])
+//    {
+//        uint8_t white_num_L = 0,white_num_R = 0;
+//        //获取左右区域10*10范围白色数目
+//        for(uint8_t i = l_point;i < l_point + 10 && i <= Deal_Right;i++)
+//        {
+//            for(uint8_t j = start_center_y;j < start_center_y + 10 ;j++)
+//            {
+//                if (imgOSTU[j][i] == White)
+//                {
+//                   white_num_L++;
+//                }
+//            }
+//        }
+//        for(uint8_t i = r_point;i > r_point - 10 && i >= Deal_Left;i--)
+//        {
+//            for(uint8_t j = start_center_y;j < start_center_y + 10 ;j++)
+//            {
+//                if (imgOSTU[j][i] == White)
+//                {
+//                   white_num_R++;
+//                }
+//            }
+//        }
+//        //数目较少位置删除处理
+//        if(white_num_L > 50 && white_num_R < 10)
+//        {
+//            r_found = 0;
+//            for (uint8_t i = l_point; i < r_point; i++)
+//            {
+//                if (imgOSTU[start_center_y][i] == White && imgOSTU[start_center_y][i+1] == Black)
+//                {
+//                    r_point = i+1;
+//                    r_found = 1;
+//                    break;
+//                }
+//            }
+//        }
+//        else if(white_num_R > 50 && white_num_L < 10)
+//        {
+//            l_found = 0;
+//            for (uint8_t i = r_point; i > l_point; i--)
+//            {
+//                if (imgOSTU[start_center_y][i-1] == Black && imgOSTU[start_center_y][i] == White)
+//                {
+//                    l_point = i-1;
+//                    l_found = 1;
+//                    break;
+//                }
+//            }
+//        }
+//    }
+    if (l_found && r_found)
+    {
+        StartBlock block[5];
+        int block_num = 0;
+
+        int x = l_point;
+
+        while (x <= r_point && block_num < 5)
+        {
+            while (x <= r_point && imgOSTU[start_center_y][x] != White && imgOSTU[start_center_y + 1][x] != White
+                    && imgOSTU[Deal_Bottom][x] != White)
+            {
+                x++;
+            }
+
+            if (x > r_point)
+            {
+                break;
+            }
+
+            int l = x;
+
+            while (x <= r_point
+                    && (imgOSTU[start_center_y][x] == White || imgOSTU[start_center_y + 1][x] == White
+                            || imgOSTU[Deal_Bottom][x] == White))
+            {
+                x++;
+            }
+
+            int r = x - 1;
+
+            if (r - l + 1 >= START_MIN_W)
+            {
+                int support = block_support(start_center_y, l, r);
+
+                if (support >= START_UP_MIN_ROWS)
+                {
+                    block[block_num].l = l;
+                    block[block_num].r = r;
+                    block[block_num].mid = (l + r) / 2;
+                    block[block_num].support = support;
+                    block_num++;
+                }
+            }
+        }
+
+        if (block_num == 0)
+        {
+            return 0;
+        }
+
+        int img_mid = XM / 2;
+        int center_id = -1;
+
+        // 优先找中间真实赛�?
+        for (int i = 0; i < block_num; i++)
+        {
+            if (block[i].l <= img_mid && block[i].r >= img_mid)
+            {
+                center_id = i;
+                break;
+            }
+
+            if (my_abs(block[i].mid - img_mid) < 18)
+            {
+                center_id = i;
+                break;
+            }
+        }
+
+        b_lost_tip = 0;
+
+        for (uint8_t i = Lost_Left; i <= Lost_Right; i++)
+        {
+            imgOSTU[Lost_Bottom][i] = Black;
+        }
+
+        if (center_id >= 0)
+        {
+            // 情况：中间是真赛道，左右是噪�?
+            start_point_l = block[center_id].l - 1;
+            start_point_r = block[center_id].r + 1;
+            start_center_x = (start_point_l + start_point_r) / 2;
+
+            for (int i = block[center_id].l; i <= block[center_id].r; i++)
+            {
+                imgOSTU[Lost_Bottom][i] = Lost_line;
+                b_lost_tip++;
+            }
+        }
+        else
+        {
+            // 情况：左右是真赛道，中间是噪�?
+            int left_id = 0;
+            int right_id = block_num - 1;
+
+            start_point_l = block[left_id].l - 1;
+            start_point_r = block[right_id].r + 1;
+
+            // 八邻域起点在左右真实赛道，但底部中心用图像中�?
+            start_center_x = XM / 2;
+
+            for (int i = block[left_id].l; i <= block[left_id].r; i++)
+            {
+                imgOSTU[Lost_Bottom][i] = Lost_line;
+                b_lost_tip++;
+            }
+
+            for (int i = block[right_id].l; i <= block[right_id].r; i++)
+            {
+                imgOSTU[Lost_Bottom][i] = Lost_line;
+                b_lost_tip++;
+            }
+        }
+
+        if (start_point_l < Deal_Left)
+        {
+            start_point_l = Deal_Left;
+        }
+
+        if (start_point_r > Deal_Right)
+        {
+            start_point_r = Deal_Right;
+        }
+
+        start_center_last = start_center_x;
+
+        return 1;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+/*********************************八邻域变量区�?********************************/
+int points_l[(uint16_t) USE_num][2] = {{0}};                     //左线
+int points_r[(uint16_t) USE_num][2] = {{0}};                     //右线
+float dir_r[(uint16_t) USE_num] = {0};                     //用来存储右边生长方向
+float dir_l[(uint16_t) USE_num] = {0};                     //用来存储左边生长方向
+uint32_t l_data_statics = 0;                     //统计左边
+uint32_t r_data_statics = 0;                     //统计右边
+uint8_t hightest = 0;                     //最高点
+uint16_t leftmost[2] = {0};                     //最左点记录
+uint16_t rightmost[2] = {0};                     //最右点记录
+uint16_t topmost[2] = {0};                     //最顶点记录
+
+//左边变量
+int center_point_l[2] = {0};                     //八邻域中心坐标点
+uint8_t search_filds_l[8][2] = {{0}}; //八邻域坐�?
+uint8_t index_l = 0; //索引下标
+uint8_t temp_l[8][2] = {{0}};
+//定义八个邻域左生长种�?
+int8_t seeds_l[8][2] = {{0, -1}, {-1, -1}, {-1, 0}, {-1, 1}, {0, 1}, {1, 1}, {1, 0}, {1, -1}, };
+//{-1,+1},{0,+1},{+1,+1},   3  4  5
+//{-1, 0},       {+1, 0},   2     6
+//{-1,-1},{0,-1},{+1,-1},   1  0  7
+//这个是顺时针，先入左黑区域，寻找出界�?
+
+//右边变量
+int center_point_r[2] = {0}; //八邻域中心坐标点
+uint8_t search_filds_r[8][2] = {{0}}; //八邻域坐�?
+uint8_t index_r = 0; //索引下标
+uint8_t temp_r[8][2] = {{0}};
+//定义八个邻域右生长种�?
+int8_t seeds_r[8][2] = {{0, -1}, {1, -1}, {1, 0}, {1, 1}, {0, 1}, {-1, 1}, {-1, 0}, {-1, -1}, };
+//{-1,+1},{0,+1},{+1,+1},   5  4  3
+//{-1, 0},       {+1, 0},   6     2
+//{-1,-1},{0,-1},{+1,-1},   7  0  1
+//这个是逆时针，先入右黑区域，寻找出界点
+/*********************************八邻域变量区�?********************************/
+
+/******************************************************************************
+ * 函数名称     :uint8_t search_l_r(uint8_t start_l_x,uint8_t start_l_y,uint8_t start_r_x,uint8_t start_r_y )
+ * 描述         :八邻域探索边界线，记录相关数�?
+ * 进入参数     : start_l_x,start_l_y,左八邻域开始坐�?
+ *               start_r_x,start_r_y,左八邻域开始坐�?
+ *使用示例      :earch_l_r(start_point_l,start_center_y,start_point_r,start_center_y);
+ * 备注        :边界记录为黑色点部分
+ ******************************************************************************/
+uint8_t search_l_r (uint8_t start_l_x, uint8_t start_l_y, uint8_t start_r_x, uint8_t start_r_y)
+{
+    search_break_reason = 0;
+//初始化巡线最高处
+    hightest = 0;
+    leftmost[0] = Deal_Right;
+    rightmost[0] = Deal_Left;
+    topmost[1] = 0;
+//左右丢失点初始化
+    l_lost_tip = 0;
+    r_lost_tip = 0;
+    t_lost_tip = 0;
+//初始化左右索�?
+    l_data_statics = 0;
+    r_data_statics = 0;
+//更新中心�?
+    center_point_l[0] = start_l_x; //x
+    center_point_l[1] = start_l_y; //y
+    center_point_r[0] = start_r_x; //x
+    center_point_r[1] = start_r_y; //y
+    points_l[l_data_statics][0] = center_point_l[0]; //x
+    points_l[l_data_statics][1] = center_point_l[1]; //y
+    points_r[r_data_statics][0] = center_point_r[0]; //x
+    points_r[r_data_statics][1] = center_point_r[1]; //y
+    uint32_t break_flag = USE_num; //总循环数
+    while (break_flag--)
+    {
+        //左边8F初始�?
+        for (uint8_t i = 0; i < 8; i++) //传�?F坐标
+        {
+            search_filds_l[i][0] = center_point_l[0] + seeds_l[i][0]; //x
+            search_filds_l[i][1] = center_point_l[1] + seeds_l[i][1]; //y
+        }
+        //中心坐标点填充到边线数组�?
+        //右边8F初始�?
+        for (uint8_t i = 0; i < 8; i++)        //传�?F坐标
+        {
+            search_filds_r[i][0] = center_point_r[0] + seeds_r[i][0];        //x
+            search_filds_r[i][1] = center_point_r[1] + seeds_r[i][1];        //y
+        }
+        //中心坐标点填充到边线数组�?
+        //左边生长判断
+        if (l_data_statics >= USE_num - 1)
+        {
+            search_break_reason = 5;
+            break;
+        }
+        l_data_statics++;        //索引加一
+        index_l = 0;        //先清零，后使�?
+        for (uint8_t i = 0; i < 8; i++)
+        {
+            temp_l[i][0] = 0;        //先清零，后使�?
+            temp_l[i][1] = 0;        //先清零，后使�?
+        }
+        for (uint8_t i = 0; i < 8; i++)
+        {
+            if ((imgOSTU[search_filds_l[i][1]][search_filds_l[i][0]] == Black
+                    || imgOSTU[search_filds_l[i][1]][search_filds_l[i][0]] == Lost_line)
+                    && (imgOSTU[search_filds_l[(i + 1) & 7][1]][search_filds_l[(i + 1) & 7][0]] == White))
+            {
+                temp_l[index_l][0] = search_filds_l[(i)][0];
+                temp_l[index_l][1] = search_filds_l[(i)][1];
+                index_l++;
+                dir_l[l_data_statics - 1] = i;        //记录生长方向，数组索引比边界少一
+            }
+            if (index_l)
+            {
+                //更新坐标�?
+                center_point_l[0] = temp_l[0][0];        //x
+                center_point_l[1] = temp_l[0][1];        //y
+                for (uint8_t j = 0; j < index_l; j++)
+                {
+                    if (center_point_l[1] < temp_l[j][1])        //中心点向高处生长
+                    {
+                        center_point_l[0] = temp_l[j][0];        //x
+                        center_point_l[1] = temp_l[j][1];        //y
+                        dir_l[l_data_statics - 1] = i;        //记录生长方向
+                    }
+                }
+            }
+            if (center_point_l[0] == Deal_Left - 1&& imgOSTU[center_point_l[1]][Deal_Left] == White
+            && imgOSTU[center_point_l[1]][Deal_Left-2] != Lost_line)
+            {
+                l_lost_tip++;
+                imgOSTU[center_point_l[1]][Lost_Left] = Lost_line;
+            }        //l_lost_tip记录
+            else if (center_point_l[0] == Deal_Right + 1&& imgOSTU[center_point_l[1]][Deal_Right] == White
+            && imgOSTU[center_point_l[1]][Lost_Right] != Lost_line)
+            {
+                r_lost_tip++;
+                imgOSTU[center_point_l[1]][Lost_Right] = Lost_line;
+            }
+            else if (center_point_l[1] == Deal_Top + 1&& imgOSTU[Deal_Top][center_point_l[0]] == White
+            && imgOSTU[Deal_Top + 2][center_point_l[0]] != Lost_line)
+            {
+                t_lost_tip++;
+                imgOSTU[Lost_Top][center_point_l[0]] = Lost_line;
+            }        //t_lost_tip记录
+            if (center_point_l[1] > hightest)
+            {
+                hightest = center_point_l[1];
+                topmost[0] = center_point_l[0];
+                topmost[1] = center_point_l[1];
+            }        //更新记录最高点
+            if (center_point_l[1] > hightest)
+            {
+                hightest = center_point_l[1];
+                topmost[0] = center_point_l[0];
+                topmost[1] = center_point_l[1];
+            }        //更新记录最高点
+            if (center_point_l[0] < leftmost[0])
+            {
+                leftmost[0] = center_point_l[0];
+                leftmost[1] = center_point_l[1];
+            }        //更新记录最左点
+        }
+        //右边判断生长判断
+        if (r_data_statics >= USE_num - 1)
+        {
+            break;
+        }
+        r_data_statics++;        //索引加一
+        index_r = 0;        //先清零，后使�?
+        for (uint8_t i = 0; i < 8; i++)
+        {
+            temp_r[i][0] = 0;        //先清零，后使�?
+            temp_r[i][1] = 0;        //先清零，后使�?
+        }
+        for (uint8_t i = 0; i < 8; i++)
+        {
+            if ((imgOSTU[search_filds_r[i][1]][search_filds_r[i][0]] == Black
+                    || imgOSTU[search_filds_r[i][1]][search_filds_r[i][0]] == Lost_line)
+                    && (imgOSTU[search_filds_r[(i + 1) & 7][1]][search_filds_r[(i + 1) & 7][0]] == White))
+            {
+                temp_r[index_r][0] = search_filds_r[(i)][0];
+                temp_r[index_r][1] = search_filds_r[(i)][1];
+                index_r++;        //索引加一
+                dir_r[r_data_statics - 1] = i;        //记录生长方向
+            }
+
+            if (index_r)
+            {
+                //更新坐标�?
+                center_point_r[0] = temp_r[0][0];        //x
+                center_point_r[1] = temp_r[0][1];        //y
+                for (uint8_t j = 0; j < index_r; j++)  //中心点向高处生长
+                {
+                    if (center_point_r[1] < temp_r[j][1])
+                    {
+                        center_point_r[0] = temp_r[j][0];  //x
+                        center_point_r[1] = temp_r[j][1];  //y
+                        dir_r[r_data_statics - 1] = i;  //记录生长方向
+                    }
+                }
+            }
+
+            if (center_point_r[0] == Deal_Right + 1&& imgOSTU[center_point_r[1]][Deal_Right] == White
+            && imgOSTU[center_point_r[1]][Lost_Right] != Lost_line)
+            {
+                r_lost_tip++;
+                imgOSTU[center_point_r[1]][Lost_Right] = Lost_line;
+            }  //r_lost_tip记录
+            else if (center_point_r[0] == Deal_Left - 1&& imgOSTU[center_point_r[1]][Deal_Left] == White
+            && imgOSTU[center_point_r[1]][Lost_Left] != Lost_line)
+            {
+                l_lost_tip++;
+                imgOSTU[center_point_r[1]][Lost_Left] = Lost_line;
+            }  //r_lost_tip记录
+            else if (center_point_r[1] == Deal_Top + 1&& imgOSTU[Deal_Top][center_point_r[0]] == White
+            && imgOSTU[Lost_Top][center_point_r[0]] != Lost_line)
+            {
+                t_lost_tip++;
+                imgOSTU[Lost_Top][center_point_r[0]] = Lost_line;
+            }  //t_lost_tip记录
+            if (center_point_r[1] > hightest)
+            {
+                hightest = center_point_r[1];
+                topmost[0] = center_point_r[0];
+                topmost[1] = center_point_r[1];
+            }  //更新记录最高点
+            if (center_point_r[0] > rightmost[0])
+            {
+                rightmost[0] = center_point_r[0];
+                rightmost[1] = center_point_r[1];
+            }  //更新记录最右点
+        }
+        if (hightest == Deal_Top - 1)
+        {
+            for (uint8_t i = Deal_Left; i <= Deal_Right; i++)
+            {
+                imgOSTU[Lost_Top][i] = Black;
+                imgOSTU[Lost_Top - 1][i] = Black;
+            }
+        }
+        //储存边界数组
+        points_l[l_data_statics][0] = center_point_l[0];  //x
+        points_l[l_data_statics][1] = center_point_l[1];  //y
+        points_r[r_data_statics][0] = center_point_r[0];  //x
+        points_r[r_data_statics][1] = center_point_r[1];  //y
+
+        if (r_data_statics >= 2 && l_data_statics >= 3)
+        {
+            if ((points_r[r_data_statics][0] == points_r[r_data_statics - 1][0]
+                    && points_r[r_data_statics][0] == points_r[r_data_statics - 2][0]
+                    && points_r[r_data_statics][1] == points_r[r_data_statics - 1][1]
+                    && points_r[r_data_statics][1] == points_r[r_data_statics - 2][1])
+                    || (points_l[l_data_statics - 1][0] == points_l[l_data_statics - 2][0]
+                            && points_l[l_data_statics - 1][0] == points_l[l_data_statics - 3][0]
+                            && points_l[l_data_statics - 1][1] == points_l[l_data_statics - 2][1]
+                            && points_l[l_data_statics - 1][1] == points_l[l_data_statics - 3][1]))
+            {
+                uint8_t right_repeat = points_r[r_data_statics][0] == points_r[r_data_statics - 1][0]
+                        && points_r[r_data_statics][0] == points_r[r_data_statics - 2][0]
+                        && points_r[r_data_statics][1] == points_r[r_data_statics - 1][1]
+                        && points_r[r_data_statics][1] == points_r[r_data_statics - 2][1];
+
+                uint8_t left_repeat = points_l[l_data_statics - 1][0] == points_l[l_data_statics - 2][0]
+                        && points_l[l_data_statics - 1][0] == points_l[l_data_statics - 3][0]
+                        && points_l[l_data_statics - 1][1] == points_l[l_data_statics - 2][1]
+                        && points_l[l_data_statics - 1][1] == points_l[l_data_statics - 3][1];
+
+                if (right_repeat)
+                {
+                    search_break_reason = 1;
+                    break;
+                }
+
+                if (left_repeat)
+                {
+                    search_break_reason = 2;
+                    break;
+                }
+                break;  //三次进入同一个点，退�?
+            }
+        }
+
+        if (my_abs(points_r[r_data_statics][0] - points_l[l_data_statics][0]) <= 1
+                && my_abs(points_r[r_data_statics][1] - points_l[l_data_statics][1]) <= 1 //左右相遇，相遇距离可�?
+                        )
+        {
+            search_break_reason = 3;
+            //左右相遇退�?
+            break;
+        }
+        if ((l_data_statics > YY / 2 && my_abs(start_l_x - points_l[l_data_statics][0]) <= 1
+                && my_abs(start_l_y - points_l[l_data_statics][1]) <= 1)
+                || (r_data_statics > YY / 2 && my_abs(start_r_x - points_r[r_data_statics][0]) <= 1
+                        && my_abs(start_r_y - points_r[r_data_statics][1]) <= 1))
+        {
+            uint8_t left_return = l_data_statics > YY / 2 && my_abs(start_l_x - points_l[l_data_statics][0]) <= 1
+                    && my_abs(start_l_y - points_l[l_data_statics][1]) <= 1;
+
+            uint8_t right_return = r_data_statics > YY / 2 && my_abs(start_r_x - points_r[r_data_statics][0]) <= 1
+                    && my_abs(start_r_y - points_r[r_data_statics][1]) <= 1;
+
+            if (left_return)
+            {
+                search_break_reason = 41;
+                break;
+            }
+
+            if (right_return)
+            {
+                search_break_reason = 42;
+                break;
+            }
+            //回到起点退�?
+            break;
+        }
+    }
+    if (search_break_reason == 0)
+    {
+        search_break_reason = 5; // 搜索次数耗尽
+    }
+//imgOSTU图像绘制左右边线
+    for (int i = l_data_statics; i > 0; i--)
+    {
+        imgOSTU[points_l[i][1]][points_l[i][0]] = Left_line;
+    }
+    for (int i = r_data_statics; i > 0; i--)
+    {
+        imgOSTU[points_r[i][1]][points_r[i][0]] = Right_line;
+    }
+}
+
+/******************************************************************************
+ * 函数名称     : void Get_lost_tip(uint8_t length_lost)
+ * 描述        : 获取四方位边缘特�?
+ * 进入参数     : void
+ * 返回参数     : uint8_t length 是正常边界丢失的判断长度
+ * 使用实例     ：Get_lost_tip(5);
+ * 备注        :lost点没有一定长�?即小于length时，返回判断
+ *              底端与左右相连时，仅保留底端
+ *              顶端与左右相连时，仅保留顶端
+ ******************************************************************************/
+void Get_lost_tip (uint8_t length)
+{
+    dis_Solidline = 0;
+//边缘特征的区域数量初始化
+    b_lost_num = 0;
+    t_lost_num = 0;
+    l_lost_num = 0;
+    r_lost_num = 0;
+//边缘特征的中心点初始�?
+    memset(b_center, 0, sizeof(b_center));
+    memset(l_center, 0, sizeof(l_center));
+    memset(r_center, 0, sizeof(r_center));
+    memset(t_center, 0, sizeof(t_center));
+    /***********获取底部边缘特征***********/
+    if (b_lost_tip)
+    {
+        for (uint8_t i = Deal_Left; i <= Deal_Right; i++)   //从左到右检测紫色丢失线
+        {
+            if (imgOSTU[Lost_Bottom][i] == Lost_line)      //检测到紫色丢失�?
+            {
+                if (i <= Deal_Left + length || i >= Deal_Right - length  //在左右临界处检测到紫色丢失�?
+                || (i + length <= XX && imgOSTU[Lost_Bottom][i + length] == Lost_line))  //紫色丢失线有一定长�?
+                {
+                    for (uint8_t k = i; k <= XX; k++)
+                    {
+                        if (imgOSTU[Lost_Bottom][k] == Black)  //判断黑色为紫色丢失线尽头
+                        {
+                            b_center[b_lost_num] = ((uint32_t) k - 1 - (uint32_t) i) / 2 + (uint32_t) i;
+                            b_lost_num++;  //底部区域数量记录
+                            i = k;
+                            break;
+                        }
+                    }
+                }
+                else  //零碎的杂点，删除处理
+                {
+                    for (uint8_t k = i; k <= i + length; k++)
+                    {
+                        if (imgOSTU[Lost_Bottom][k] == Lost_line)
+                        {
+                            imgOSTU[Lost_Bottom][k] = Black;
+                            b_lost_tip--;
+                        }
+                        else if (imgOSTU[Lost_Bottom][k] == Black)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+            if (b_lost_num == 2)
+            {
+                break;
+            }
+        }
+    }
+//    qout<<"b_lost_num"<<b_lost_num;
+    /***********获取左部边缘特征***********/
+    if (l_lost_tip)
+    {
+        for (uint8_t i = Deal_Bottom; i <= Deal_Top; i++)  //从下到上检测紫色丢失线
+        {
+            if (imgOSTU[i][Lost_Left] == Lost_line)  //检测到紫色丢失�?
+            {
+                if (i <= Deal_Bottom + length)  //左侧边缘块过低，考虑底部连续，仅保留底部
+                {
+                    for (uint8_t j = Deal_Left; j <= Deal_Left + length; j++)
+                    {
+                        if (imgOSTU[Lost_Bottom][j] == Lost_line)
+                        {
+                            imgOSTU[Lost_Bottom][Lost_Left] = Lost_line;
+                            for (; i <= Deal_Top / 2; i++)
+                            {
+                                if (imgOSTU[i][Lost_Left] == Lost_line)
+                                {
+                                    imgOSTU[i][Lost_Left] = Black;
+                                    l_lost_tip--;
+                                }
+                                else if (imgOSTU[i][Lost_Left] == Black)
+                                {
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+                else  //正常区域，进行记�?
+                {
+                    uint8_t k = i;
+                    for (; i <= Lost_Top; i++)
+                    {
+                        if (imgOSTU[i][Lost_Left] == Black)
+                        {
+                            l_center[l_lost_num] = ((uint32_t) i - 1 - (uint32_t) k) / 2 + (uint32_t) k;
+                            l_lost_num++;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (l_lost_num == 2)
+            {
+                break;
+            }
+        }
+    }
+//    qout<<"l_lost_num"<<l_lost_num;
+    /***********获取右部边缘特征***********/
+    if (r_lost_tip)
+    {
+        for (uint8_t i = Deal_Bottom; i <= Deal_Top; i++)  //从下到上检测紫色丢失线
+        {
+            if (imgOSTU[i][Lost_Right] == Lost_line)  //检测到紫色丢失�?
+            {
+                if (i <= Deal_Bottom + length)  //右侧边缘块过低，考虑底部连续，仅保留底部
+                {
+                    for (uint8_t j = Deal_Right; j >= Deal_Right - length; j--)
+                    {
+                        if (imgOSTU[Lost_Bottom][j] == Lost_line)
+                        {
+                            imgOSTU[Lost_Bottom][Lost_Right] = Lost_line;
+                            for (; i <= Deal_Top / 2; i++)
+                            {
+                                if (imgOSTU[i][Lost_Right] == Lost_line)
+                                {
+                                    imgOSTU[i][Lost_Right] = Black;
+                                    r_lost_tip--;
+                                }
+                                else if (imgOSTU[i][Lost_Right] == Black)
+                                {
+                                    break;
+                                }
+                            }
+                        }
+
+                    }
+                }
+                else  //正常记录区域
+                {
+                    uint8_t k = i;
+                    for (; i <= Lost_Top; i++)
+                    {
+                        if (imgOSTU[i][Deal_Right + 2] == Black)
+                        {
+                            r_center[r_lost_num] = ((uint32_t) i - 1 - (uint32_t) k) / 2 + (uint32_t) k;
+                            r_lost_num++;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (r_lost_num == 2)
+            {
+                break;
+            }
+        }
+    }
+//    qout<<"r_lost_num"<<r_lost_num;
+    /***********获取顶部边缘特征***********/
+    if (t_lost_tip)
+    {
+        uint16_t center[5] = {0};
+        uint16_t num = 0;
+        for (uint8_t i = Deal_Left; i <= Deal_Right; i++)
+        {
+            if (imgOSTU[Lost_Top][i] == Lost_line)
+            {
+                if (i <= Deal_Left + length && l_lost_num)
+                {
+                    uint8_t top_start = i;
+                    uint8_t keep_left_lost = 0;
+
+                    // ���������ȷʵ����ʱ����������
+                    for (uint8_t j = Deal_Top; j >= Deal_Top - length; j--)
+                    {
+                        if (imgOSTU[j][Lost_Left] == Lost_line)
+                        {
+                            keep_left_lost = 1;
+                            imgOSTU[Lost_Top][Lost_Left] = Lost_line;
+                            break;
+                        }
+                    }
+
+                    for (uint8_t k = i; k <= XX; k++)
+                    {
+                        if (imgOSTU[Lost_Top][k] == Black)
+                        {
+                            uint8_t top_end = k - 1;
+                            i = k;
+
+                            if (keep_left_lost)
+                            {
+                                // �󡢶���ͬʱ���ߣ�ɾ�������Ķ������ߣ����߱��ֲ���
+                                for (uint16_t x = top_start; x <= top_end; x++)
+                                {
+                                    if (imgOSTU[Lost_Top][x] == Lost_line)
+                                    {
+                                        imgOSTU[Lost_Top][x] = Black;
+                                        if (t_lost_tip > 0)
+                                        {
+                                            t_lost_tip--;
+                                        }
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                center[num] = ((uint32_t) top_end - (uint32_t) top_start) / 2 + (uint32_t) top_start;
+                                num++;
+                            }
+                            break;
+                        }
+                    }
+                }
+                else if (i + length >= XX || (i + length <= XX && imgOSTU[Lost_Top][i + length] == Lost_line)) //紫色区域有一定长�?
+                {
+                    uint8_t top_start = i;
+                    for (uint8_t k = i; k <= XX; k++)
+                    {
+                        if (imgOSTU[Lost_Top][k] == Black)
+                        {
+                            uint8_t top_end = k - 1;
+                            uint8_t keep_right_lost = 0;
+                            i = k;
+
+                            if (top_end >= Deal_Right - length && r_lost_num)
+                            {
+                                for (uint8_t j = Deal_Top; j >= Deal_Top - length; j--)
+                                {
+                                    if (imgOSTU[j][Lost_Right] == Lost_line)
+                                    {
+                                        keep_right_lost = 1;
+                                        imgOSTU[Lost_Top][Lost_Right] = Lost_line;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (keep_right_lost)
+                            {
+                                for (uint16_t x = top_start; x <= top_end; x++)
+                                {
+                                    if (imgOSTU[Lost_Top][x] == Lost_line)
+                                    {
+                                        imgOSTU[Lost_Top][x] = Black;
+                                        if (t_lost_tip > 0)
+                                        {
+                                            t_lost_tip--;
+                                        }
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                center[num] = ((uint32_t) top_end - (uint32_t) top_start) / 2 + (uint32_t) top_start;
+                                num++;
+                            }
+                            break;
+                        }
+                    }
+                }
+                else //零碎杂点，清�?
+                {
+                    for (uint8_t k = i; k <= i + length; k++)
+                    {
+                        if (imgOSTU[Deal_Top + 2][k] == Lost_line)
+                        {
+                            imgOSTU[Deal_Top + 2][k] = Black;
+                            t_lost_tip--;
+                        }
+                        else if (imgOSTU[Deal_Top + 2][k] == Black)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (num > 2)
+        {
+            uint8_t Get_center[2] = {0};
+            for (uint8_t k = 0; k <= Deal_W / 2 - 1; k++)
+            {
+                for (uint8_t i = 0; i <= 4; i++)
+                {
+                    if (center[i] == Deal_W / 2 + k)
+                    {
+                        Get_center[t_lost_num] = Deal_W / 2 + k;
+                        t_lost_num++;
+                    }
+                    if (center[i] == Deal_W / 2 - k)
+                    {
+                        Get_center[t_lost_num] = Deal_W / 2 - k;
+                        t_lost_num++;
+                    }
+                }
+                if (t_lost_num >= 2)
+                {
+
+                    t_center[0] = Get_center[0] < Get_center[1] ? Get_center[0] : Get_center[1];
+                    t_center[1] = Get_center[0] > Get_center[1] ? Get_center[0] : Get_center[1];
+                    break;
+                }
+            }
+        }
+        else
+        {
+            t_lost_num = num;
+            t_center[0] = center[0];
+            t_center[1] = center[1];
+        }
+    }
+}
+/******************************************************************************
+ * 函数名称     :uint8_t Find_Top_Forward_Point(void)
+
+ * 描述        :处理拐点开关在直道图像顶部的情�?
+ * 进入参数     :
+ * 返回参数     :
+ * 备注        :
+
+ ******************************************************************************/
+uint8_t Find_Top_Forward_Point (void)
+{
+    const int SEARCH_HALF_WIDTH = 20;
+    const int MIN_WHITE_WIDTH = 3;
+    const int CONFIRM_ROWS = 3;
+    const int TRACK_HALF_WIDTH = 8;
+
+    int search_rows = 24;
+    int found_x = 0;
+    int found_y = 0;
+
+    top_forward_found = 0;
+
+    if (!(l_lost_num || r_lost_num))
+        return 0;
+
+    if (topmost[1] >= 70)
+    {
+        search_rows = 10;
+    }
+    else if (topmost[1] >= 50)
+    {
+        search_rows = 14;
+    }
+
+    int y_start = topmost[1] + 2;
+    int y_end = topmost[1] + search_rows;
+
+    if (y_start <= start_center_y)
+        y_start = start_center_y + 1;
+
+    if (y_start > Deal_Top)
+        return 0;
+
+    if (y_end > Deal_Top)
+        y_end = Deal_Top;
+
+    for (int y = y_start; y <= y_end; y++)
+    {
+        int search_left = topmost[0] - SEARCH_HALF_WIDTH;
+        int search_right = topmost[0] + SEARCH_HALF_WIDTH;
+        int best_x = -1;
+        int best_distance = XM;
+
+        if (search_left < Deal_Left)
+            search_left = Deal_Left;
+        if (search_right > Deal_Right)
+            search_right = Deal_Right;
+
+        for (int x = search_left; x <= search_right;)
+        {
+            if (imgOSTU[y][x] != White)
+            {
+                x++;
+                continue;
+            }
+
+            int run_left = x;
+            while (x <= search_right && imgOSTU[y][x] == White)
+                x++;
+
+            int run_width = x - run_left;
+            if (run_width >= MIN_WHITE_WIDTH)
+            {
+                int run_center = run_left + run_width / 2;
+                int distance = my_abs(run_center - topmost[0]);
+
+                if (distance < best_distance)
+                {
+                    best_distance = distance;
+                    best_x = run_center;
+                }
+            }
+        }
+
+        if (best_x < 0)
+            continue;
+
+        int tracked_x = best_x;
+        int valid_rows = 1;
+
+        for (int yy = y + 1; yy < y + CONFIRM_ROWS && yy <= Deal_Top && yy <= y_end; yy++)
+        {
+            int white_count = 0;
+            int white_sum = 0;
+
+            for (int xx = tracked_x - TRACK_HALF_WIDTH; xx <= tracked_x + TRACK_HALF_WIDTH; xx++)
+            {
+                if (xx >= Deal_Left && xx <= Deal_Right && imgOSTU[yy][xx] == White)
+                {
+                    white_count++;
+                    white_sum += xx;
+                }
+            }
+
+            if (white_count < MIN_WHITE_WIDTH)
+                break;
+
+            tracked_x = white_sum / white_count;
+            valid_rows++;
+        }
+
+        if (valid_rows >= CONFIRM_ROWS)
+        {
+            found_x = tracked_x;
+            found_y = y + valid_rows - 1;
+            break;
+        }
+    }
+
+    if (found_y <= start_center_y)
+        return 0;
+
+    end_center_x = found_x;
+    end_center_y = found_y;
+
+    t_lost_num = 1;
+    t_lost_tip = MIN_WHITE_WIDTH;
+    t_center[0] = end_center_x;
+    top_forward_found = 1;
+
+    return end_center_y;
+}
+
+uint8_t Draw_Top_Forward_Line (void)
+{
+    if (!top_forward_found)
+        return 0;
+
+    if (end_center_y <= start_center_y)
+        return 0;
+
+    float k = ((float) end_center_x - (float) start_center_x) / ((float) end_center_y - (float) start_center_y);
+
+    for (int y = start_center_y; y <= end_center_y; y++)
+    {
+        int x = (int) (start_center_x + k * (y - start_center_y));
+
+        if (x < Deal_Left)
+            x = Deal_Left;
+        else if (x > Deal_Right)
+            x = Deal_Right;
+
+        mid_line[y] = (uint8_t) x;
+        imgOSTU[y][x] = Control_line;
+    }
+
+    IF = straightlineS;
+    return end_center_y;
+}
+
+uint8_t Has_Disconnected_Forward_Road (void)
+{
+    const int SEARCH_HALF_WIDTH = 24;
+    const int MIN_WHITE_WIDTH = 3;
+    const int CONFIRM_ROWS = 3;
+    const int TRACK_HALF_WIDTH = 8;
+
+    int center_x = topmost[0];
+    int y_start = topmost[1] + 4;
+    int y_end = topmost[1] + 30;
+    int found_x = 0;
+    int found_y = 0;
+    int fallback_x = 0;
+    int fallback_y = 0;
+
+    if (y_start > Deal_Top)
+        return 0;
+
+    if (y_end > Deal_Top)
+        y_end = Deal_Top;
+
+    for (int y = y_start; y <= y_end; y += 2)
+    {
+        int search_left = center_x - SEARCH_HALF_WIDTH;
+        int search_right = center_x + SEARCH_HALF_WIDTH;
+        int best_x = -1;
+        int best_distance = XM;
+
+        if (search_left < Deal_Left)
+            search_left = Deal_Left;
+        if (search_right > Deal_Right)
+            search_right = Deal_Right;
+
+        for (int x = search_left; x <= search_right;)
+        {
+            if (imgOSTU[y][x] != White)
+            {
+                x++;
+                continue;
+            }
+
+            int run_left = x;
+            while (x <= search_right && imgOSTU[y][x] == White)
+                x++;
+
+            int run_width = x - run_left;
+            if (run_width >= MIN_WHITE_WIDTH)
+            {
+                int run_center = run_left + run_width / 2;
+                int distance = my_abs(run_center - center_x);
+
+                if (distance < best_distance)
+                {
+                    best_distance = distance;
+                    best_x = run_center;
+                }
+            }
+        }
+
+        if (best_x < 0)
+            continue;
+
+        int tracked_x = best_x;
+        int valid_rows = 1;
+
+        for (int yy = y + 1; yy < y + CONFIRM_ROWS && yy <= Deal_Top; yy++)
+        {
+            int white_count = 0;
+            int white_sum = 0;
+
+            for (int xx = tracked_x - TRACK_HALF_WIDTH; xx <= tracked_x + TRACK_HALF_WIDTH; xx++)
+            {
+                if (xx >= Deal_Left && xx <= Deal_Right && imgOSTU[yy][xx] == White)
+                {
+                    white_count++;
+                    white_sum += xx;
+                }
+            }
+
+            if (white_count < MIN_WHITE_WIDTH)
+                break;
+
+            tracked_x = white_sum / white_count;
+            valid_rows++;
+        }
+
+        if (valid_rows == CONFIRM_ROWS)
+        {
+            found_x = tracked_x;
+            found_y = y + CONFIRM_ROWS - 1;
+            break;
+        }
+
+        if (valid_rows >= 2 && y + valid_rows - 1 > fallback_y)
+        {
+            fallback_x = tracked_x;
+            fallback_y = y + valid_rows - 1;
+        }
+    }
+
+    if (found_y <= start_center_y)
+    {
+        if (fallback_y <= start_center_y)
+            return 0;
+
+        found_x = fallback_x;
+        found_y = fallback_y;
+    }
+
+    end_center_x = found_x;
+    end_center_y = found_y;
+
+    float k = ((float) end_center_x - (float) start_center_x) / ((float) end_center_y - (float) start_center_y);
+
+    for (int y = start_center_y; y <= end_center_y; y++)
+    {
+        int x = (int) (start_center_x + k * (y - start_center_y));
+
+        if (x < Deal_Left)
+            x = Deal_Left;
+        else if (x > Deal_Right)
+            x = Deal_Right;
+
+        mid_line[y] = (uint8_t) x;
+        imgOSTU[y][x] = Control_line;
+    }
+
+    IF = straightlineS;
+    return end_center_y;
+}
+/******************************************************************************
+ * 函数名称     :void Headle_disconnected_lu(void)
+ * 描述        :处理拐点顶部开关那些元器件
+ * 进入参数     : void
+ * 返回参数     : void
+ * 备注        :失败返回0；到时候可能范围得改一下，向上40，左�?0，可能识别到别的赛道�?
+
+ ******************************************************************************/
+uint8_t Headle_disconnected_lu (void)
+{
+    const int SEARCH_HALF_WIDTH = 24;
+    const int MIN_WHITE_WIDTH = 3;
+    const int CONFIRM_ROWS = 3;
+    const int TRACK_HALF_WIDTH = 6;
+
+    int found_x = 0;
+    int found_y = 0;
+    int fallback_x = 0;
+    int fallback_y = 0;
+
+    for (int y = topmost[1] + 2; y <= topmost[1] + 5 && y + CONFIRM_ROWS - 1 <= Deal_Top; y += 2)
+    {
+        int search_left = topmost[0] - SEARCH_HALF_WIDTH;
+        int search_right = topmost[0] + SEARCH_HALF_WIDTH;
+        int best_x = -1;
+        int best_distance = XM;
+
+        if (search_left < Deal_Left)
+            search_left = Deal_Left;
+        if (search_right > Deal_Right)
+            search_right = Deal_Right;
+
+        for (int x = search_left; x <= search_right;)
+        {
+            if (imgOSTU[y][x] != White)
+            {
+                x++;
+                continue;
+            }
+
+            int run_left = x;
+            while (x <= search_right && imgOSTU[y][x] == White)
+                x++;
+
+            int run_width = x - run_left;
+            if (run_width >= MIN_WHITE_WIDTH)
+            {
+                int run_center = run_left + run_width / 2;
+                int distance = my_abs(run_center - topmost[0]);
+
+                if (distance < best_distance)
+                {
+                    best_distance = distance;
+                    best_x = run_center;
+                }
+            }
+        }
+
+        if (best_x < 0)
+            continue;
+
+        int tracked_x = best_x;
+        int valid_rows = 1;
+
+        for (int yy = y + 1; yy < y + CONFIRM_ROWS; yy++)
+        {
+            int white_count = 0;
+            int white_sum = 0;
+
+            for (int xx = tracked_x - TRACK_HALF_WIDTH; xx <= tracked_x + TRACK_HALF_WIDTH; xx++)
+            {
+                if (xx >= Deal_Left && xx <= Deal_Right && imgOSTU[yy][xx] == White)
+                {
+                    white_count++;
+                    white_sum += xx;
+                }
+            }
+
+            if (white_count < MIN_WHITE_WIDTH)
+                break;
+
+            tracked_x = white_sum / white_count;
+            valid_rows++;
+        }
+
+        if (valid_rows == CONFIRM_ROWS)
+        {
+            found_x = tracked_x;
+            found_y = y + CONFIRM_ROWS - 1;
+            break;
+        }
+
+        if (valid_rows >= 2 && y + valid_rows - 1 > fallback_y)
+        {
+            fallback_x = tracked_x;
+            fallback_y = y + valid_rows - 1;
+        }
+    }
+
+    if (found_y <= start_center_y)
+    {
+        if (fallback_y <= start_center_y)
+            return 0;
+
+        found_x = fallback_x;
+        found_y = fallback_y;
+    }
+
+    end_center_x = found_x;
+    end_center_y = found_y;
+
+    float k = ((float) end_center_x - (float) start_center_x) / ((float) end_center_y - (float) start_center_y);
+
+    for (int y = start_center_y; y <= end_center_y; y++)
+    {
+        int x = (int) (start_center_x + k * (y - start_center_y));
+
+        if (x < Deal_Left)
+            x = Deal_Left;
+        else if (x > Deal_Right)
+            x = Deal_Right;
+
+        mid_line[y] = (uint8_t) x;
+        imgOSTU[y][x] = Control_line;
+    }
+
+    IF = straightlineS;
+    return end_center_y;
+}
+/******************************************************************************
+ * 函数名称     :void Get_start_center(void)
+ * 描述        :获取中线起点
+ * 进入参数     : void
+ * 返回参数     : void
+ * 使用实例     :Get_start_center();
+ * 备注        :单区域寻找起点，删除边界较低部分(统计最高处与最低处，获取中间�?
+ *             双区域寻找起点，删除边界较低部分(统计两处平均�?
+ ******************************************************************************/
+void Get_start_center (void)
+{
+
+//底部仅有一块特征区域，且较宽（一般为停车线或者十字处），则进行删除处�?
+    if (b_lost_tip >= white_width[Deal_Bottom] + 5 && b_lost_num == 1)
+    {
+        uint32_t max = 0, min = Deal_Top, mid = Deal_Top / 2;
+        uint8_t white_heigh[XM] = {0};
+        //统计白列高度，并找出最高和最低白�?
+        for (uint8_t i = start_point_l; i <= start_point_r; i++)
+        {
+            if (imgOSTU[Lost_Bottom][i] == Lost_line)
+            {
+                for (uint8_t j = Deal_Bottom; j <= Deal_Top + 1; j++)
+                {
+                    if (imgOSTU[j][i] == Black || imgOSTU[j][i] == Left_line || imgOSTU[j][i] == Right_line)
+                    {
+                        white_heigh[i] = j;
+                        max = max > j ? max : j;
+                        min = min < j ? min : j;
+                        break;
+                    }
+                }
+            }
+        }
+        //计算分割白列高度
+        if (b_lost_tip >= 2 * white_width[Deal_Bottom])
+        {
+            mid = (max - min) * 2 / 3 + min;
+        }
+        else
+        {
+            mid = (max + min) / 2;
+        }
+//        qout<<"b_mid"<<mid;
+        //删除低于分割白列的点
+        for (uint8_t i = start_point_l; i <= start_point_r; i++)
+        {
+            if (imgOSTU[Lost_Bottom][i] == Lost_line && white_heigh[i] < mid)
+            {
+                b_lost_tip--;
+                imgOSTU[Lost_Bottom][i] = Black;
+            }
+        }
+    }
+    else if (b_lost_num == 2)
+    {
+        int b0 = b_center[0];
+        int b1 = b_center[1];
+
+        if (b0 > b1)
+        {
+            int temp = b0;
+            b0 = b1;
+            b1 = temp;
+        }
+
+        int img_mid = XM / 2;          // 188 / 2 = 94
+        int bottom_mid = (b0 + b1) / 2;
+        int bottom_gap = b1 - b0;
+
+        // 两个底部丢线都靠近中线，认为是电�?电阻/器件底部干扰，直接取中心
+        if (l_lost_num == 0 && r_lost_num == 0 && my_abs(bottom_mid - img_mid) <= 20 && my_abs(b0 - img_mid) <= 60
+                && my_abs(b1 - img_mid) <= 60 && bottom_gap >= 4 && bottom_gap <= 100)
+        {
+            // 清掉原来的两个底部丢线区�?
+            for (uint8_t i = start_point_l; i <= start_point_r; i++)
+            {
+                if (imgOSTU[Lost_Bottom][i] == Lost_line)
+                {
+                    imgOSTU[Lost_Bottom][i] = Black;
+                }
+            }
+
+            // 只保留中间这个底部丢线点
+            imgOSTU[Lost_Bottom][bottom_mid] = Lost_line;
+
+            // 同步底部丢线信息
+            b_center[0] = bottom_mid;
+            b_center[1] = 0;
+            b_lost_num = 1;
+            b_lost_tip = 1;
+        }
+        else
+        {
+            uint8_t l_point = 0, r_point = XM;
+            float l_num = 0, r_num = 0;
+            float l_sum = 0, r_sum = 0;
+            float l_average = 0, r_average = 0;
+
+            // 找到左特征区域的起点，并计算平均白列�?
+            for (uint8_t i = start_point_l; i <= start_point_r; i++)
+            {
+                if (imgOSTU[Lost_Bottom][i] == Lost_line)
+                {
+                    l_point = i;
+                    for (uint8_t j = l_point; j <= Deal_Right; j++)
+                    {
+                        if (imgOSTU[Lost_Bottom][j] == Lost_line)
+                        {
+                            for (uint8_t k = Deal_Bottom + 1; k <= Deal_Top + 1; k++)
+                            {
+                                if (imgOSTU[k][j] == Left_line || imgOSTU[k][j] == Right_line)
+                                {
+                                    l_num++;
+                                    l_sum = l_sum + k;
+                                    break;
+                                }
+                            }
+                        }
+                        else if (imgOSTU[Lost_Bottom][j] == Black)
+                        {
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+
+            // 找到右特征区域的起点，并计算平均白列�?
+            for (uint8_t i = start_point_r; i >= start_point_l; i--)
+            {
+                if (imgOSTU[Lost_Bottom][i] == Lost_line)
+                {
+                    r_point = i;
+                    for (uint8_t j = i; j >= Deal_Left; j--)
+                    {
+                        if (imgOSTU[Lost_Bottom][j] == Lost_line)
+                        {
+                            for (uint8_t k = Deal_Bottom; k <= Deal_Top + 1; k++)
+                            {
+                                if (imgOSTU[k][j] == Black || imgOSTU[k][j] == Left_line || imgOSTU[k][j] == Right_line)
+                                {
+                                    r_num++;
+                                    r_sum = r_sum + k;
+                                    break;
+                                }
+                            }
+                        }
+                        else if (imgOSTU[Lost_Bottom][j] == Black)
+                        {
+                            break;
+                        }
+                    }
+                    break;
+                }
+
+                if (i == 0)
+                {
+                    break;
+                }
+            }
+
+            // 防止�?0
+            if (l_num == 0 || r_num == 0)
+            {
+                // 不处理，交给后面的重新获取中心兜�?
+            }
+            else
+            {
+                l_average = l_sum / l_num;
+                r_average = r_sum / r_num;
+
+                // 比较判断，仅仅保留白列高的一块特征区�?
+                if (l_average >= r_average)
+                {
+                    for (uint8_t i = r_point; i >= l_point; i--)
+                    {
+                        if (imgOSTU[Lost_Bottom][i] == Lost_line)
+                        {
+                            imgOSTU[Lost_Bottom][i] = Black;
+                        }
+                        else
+                        {
+                            break;
+                        }
+
+                        if (i == 0)
+                        {
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    for (uint8_t i = l_point; i <= r_point; i++)
+                    {
+                        if (imgOSTU[Lost_Bottom][i] == Lost_line)
+                        {
+                            imgOSTU[Lost_Bottom][i] = Black;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                b_lost_num = 1;
+            }
+        }
+    }
+    uint32_t l_point = 0, r_point = 0;
+    for (uint8_t i = start_point_l; i < start_point_r; i++)
+    {
+        if (imgOSTU[Lost_Bottom][i] == Lost_line)
+        {
+            l_point = i;
+            break;
+        }
+    }
+    for (uint8_t i = start_point_r; i > start_point_l; i--)
+    {
+        if (imgOSTU[Lost_Bottom][i] == Lost_line)
+        {
+            r_point = i;
+            break;
+        }
+    }
+    start_center_x = (l_point + r_point) / 2;
+//    qout<<"start_center_x"<<start_center_x;
+}
+/******************************************************************************
+ * 函数名称     :void Get_top_straightline(void)
+ * 描述        : 绘制顶端直线
+ * 进入参数     : void
+ * 返回参数     : void
+ * 使用实例     :Get_top_straightline();
+ * 备注        :先删除较短边界处
+ *             单区域绘制，直接直线相连
+ *             双区域绘制，判断那一段为直线
+ ******************************************************************************/
+uint8_t Get_top_straightline (void)
+{
+    /* if (top_white_too_much())
+     {
+     end_center_y = Deal_Top;
+
+     for (uint8_t y = start_center_y; y <= end_center_y; y++)
+     {
+     mid_line[y] = XM / 2;
+     imgOSTU[y][mid_line[y]] = Control_line;
+     }
+     A=60;
+
+     IF = straightlineS;
+     return end_center_y;
+     }*/
+    if (t_lost_num != 1 && t_lost_num != 2)
+    {
+        return 0;
+    }
+    uint8_t Black_num = 0;
+    /**********************单顶端区域处�?*********************/
+    if (t_lost_num == 1)
+    {
+        if ((t_lost_tip >= white_width[Deal_Top] + 5 && t_lost_num == 1) || (t_lost_tip >= 3 * white_width[Deal_Top]))
+        {
+            //统计顶端白列长度，进行分�?
+            uint32_t max = 0, min = Deal_Top, mid = Deal_Top / 2;
+            uint8_t white_low[XM] = {0};
+            for (uint8_t i = Deal_Left; i <= Deal_Right; i++)
+            {
+                if (imgOSTU[Lost_Top][i] == Lost_line)
+                {
+                    for (uint8_t j = Deal_Top; j >= 0; j--)
+                    {
+                        if (imgOSTU[j][i] != White)
+                        {
+                            white_low[i] = j;
+                            max = max > j ? max : j;
+                            min = min < j ? min : j;
+                            break;
+                        }
+                    }
+                }
+            }
+            mid = (max + min) / 2;
+            //        qout<<"t_mid"<<mid;
+            for (uint8_t i = Deal_Left; i <= Deal_Right; i++)
+            {
+                if (imgOSTU[Lost_Top][i] == Lost_line && white_low[i] > mid)
+                {
+                    t_lost_tip--;
+                    imgOSTU[Deal_Top + 2][i] = Black;
+                }
+            }
+            //获取终点
+            int16_t l_point = -1;
+            int16_t r_point = -1;
+
+            end_center_y = Deal_Top;
+
+            for (uint8_t i = Deal_Left; i <= Deal_Right; i++)
+            {
+                if (imgOSTU[Lost_Top][i] == Lost_line)
+                {
+                    l_point = i;
+                    break;
+                }
+            }
+
+            for (uint8_t i = Deal_Right; i >= Deal_Left; i--)
+            {
+                if (imgOSTU[Lost_Top][i] == Lost_line)
+                {
+                    r_point = i;
+                    break;
+                }
+            }
+
+            if (l_point < 0 || r_point < 0)
+            {
+                return 0;
+            }
+
+            end_center_x = (l_point + r_point) / 2;
+        }
+        else
+        {
+            end_center_y = Deal_Top;
+            end_center_x = t_center[0];
+        }
+        //通过顶点起点拟合直线
+        if (end_center_y <= start_center_y)
+        {
+            return 0;
+        }
+        float k = ((float) end_center_x - (float) start_center_x) / ((float) end_center_y - (float) start_center_y);
+        for (uint8_t i = start_center_y; i <= end_center_y; ++i)
+        {
+            mid_line[i] = (float) (start_center_x + k * (i - start_center_y));
+            if (imgOSTU[i][(uint8_t) mid_line[i]] != White)
+            {
+                Black_num++;
+            }
+            imgOSTU[i][(uint8_t) mid_line[i]] = Control_line;
+        }
+    }
+    /**********************双顶端区域进行直线判�?*********************/
+    else if (t_lost_num == 2)
+    {
+        end_center_y = Deal_Top;
+        uint32_t t_center_l = t_center[0], t_center_r = t_center[1]; //左右顶点初始�?
+//        qout<<"t_center_l"<<t_center_l;
+//        qout<<"t_center_r"<<t_center_r;
+                //判断左右连线之间黑色点数�?
+        uint8_t left_line[YM] = {XM / 2};
+        uint8_t right_line[YM] = {XM / 2};
+        uint8_t Black_num_l = 0, Black_num_r = 0;
+        float kl = ((float) t_center_l - (float) start_center_x) / ((float) end_center_y - (float) start_center_y);
+        for (uint8_t i = start_center_y; i <= end_center_y; ++i)
+        {
+            left_line[i] = (uint8_t) (start_center_x + kl * (i - start_center_y));
+            if (imgOSTU[i][left_line[i]] != White)
+            {
+                Black_num_l++;
+            }
+            else
+            {
+                imgOSTU[i][left_line[i]] = Judge_line;
+            }
+        }
+        float kr = (float) ((float) t_center_r - (float) start_center_x)
+                / ((float) end_center_y - (float) start_center_y);
+        for (uint8_t i = start_center_y; i <= end_center_y; ++i)
+        {
+            right_line[i] = (uint8_t) (start_center_x + kr * (i - start_center_y));
+            if (imgOSTU[i][right_line[i]] != White)
+            {
+                Black_num_r++;
+            }
+            else
+            {
+                imgOSTU[i][right_line[i]] = Judge_line;
+            }
+        }
+        //        qout<<"Black_num_l"<<Black_num_l;
+        //        qout<<"Black_num_r"<<Black_num_r;
+        //通过比较黑色点数，判断引用哪条中�?
+        if (Black_num_l > Black_num_r)
+        {
+            end_center_x = t_center_r;
+            Black_num = Black_num_r;
+            for (uint8_t i = start_center_y; i <= end_center_y; ++i)
+            {
+                mid_line[i] = right_line[i];
+                imgOSTU[i][mid_line[i]] = Control_line;
+            }
+        }
+        else
+        {
+            end_center_x = t_center_l;
+            Black_num = Black_num_l;
+            for (uint8_t i = start_center_y; i <= end_center_y; ++i)
+            {
+                mid_line[i] = left_line[i];
+                imgOSTU[i][mid_line[i]] = Control_line;
+            }
+        }
+    }
+    /*  else if (t_lost_num == 2)
+     {
+     end_center_y = Deal_Top;
+
+     // 两个顶部丢线区域中心的中�?
+     // 先转�?uint16_t，防止两�?uint8_t 相加溢出
+     end_center_x =
+     (uint8_t)(((uint16_t)t_center[0] +
+     (uint16_t)t_center[1]) / 2U);
+
+     if (end_center_y <= start_center_y)
+     {
+     return 0;
+     }
+
+     float k =
+     ((float)end_center_x - (float)start_center_x) /
+     ((float)end_center_y - (float)start_center_y);
+
+     for (uint8_t i = start_center_y;
+     i <= end_center_y;
+     i++)
+     {
+     int x = (int)(start_center_x +
+     k * (i - start_center_y));
+
+     if (x < Deal_Left)
+     {
+     x = Deal_Left;
+     }
+     else if (x > Deal_Right)
+     {
+     x = Deal_Right;
+     }
+
+     mid_line[i] = (uint8_t)x;
+
+     // 保留原来的黑点统计，否则后面�?IF 判断会失�?
+     if (imgOSTU[i][mid_line[i]] != White)
+     {
+     Black_num++;
+     }
+
+     imgOSTU[i][mid_line[i]] = Control_line;
+     }
+     }*/
+    if (start_center_y == Deal_Bottom && Black_num < 3)
+    {
+        IF = straightlineL;
+    }
+    else if (start_center_y == Deal_Bottom)
+    {
+        IF = straightlineS;
+    }
+    top_straight_error_fuse = 1;
+    return end_center_y;
+}
+
+/******************************************************************************
+ * 函数名称     :uint8_t Left_curve_line(void)
+ * 描述        : 绘制左边界曲�?曲率有两点间黑色点绝�?
+ * 进入参数     : void
+ * 返回参数     : void
+ * 使用实例     :Left_curve_line();
+ ******************************************************************************/
+uint8_t Left_curve_line (void)
+{
+    end_center_x = Deal_Left;
+
+    // 【核心修复：防止数组越界，提供强制拐弯兜底�?
+    if (l_lost_num > 0)
+    {
+        end_center_y = l_center[l_lost_num - 1];
+    }
+    else
+    {
+        // 兜底虚拟弯心
+        end_center_y = Deal_Bottom + 45;
+    }
+
+    if (end_center_y <= start_center_y)
+    {
+        return 0;
+    }
+
+    int curvature_n = 55;
+    uint8_t curve_start_x = XM / 2;
+    Get_curve_line(curve_start_x, start_center_y, end_center_x, end_center_y, curvature_n);
+    IF = curve;
+
+    return end_center_y;
+}
+/******************************************************************************
+ * 函数名称     :void Right_curve_line(void)
+ * 描述        : 绘制右边界曲�?曲率有两点间黑色点绝�?
+ * 进入参数     : void
+ * 返回参数     :最终坐标的y
+ * 使用实例     :Right_curve_line();
+ ******************************************************************************/
+uint8_t Right_curve_line (void)
+{
+    end_center_x = Deal_Right;
+
+    // 【核心修复：防止数组越界，提供强制拐弯兜底�?
+    if (r_lost_num > 0)
+    {
+        // 如果有右丢线，直接用真实的丢线点（不管它跑多高，偏差大更好转弯）
+        end_center_y = r_center[r_lost_num - 1];
+    }
+    else
+    {
+        // 剧本强制我右拐，但我没找到右丢线（被三极管完全遮挡）
+        // 那我就强行凭空捏造一个弯心（比如车前 40 行的位置�?
+        end_center_y = Deal_Bottom + 45;
+    }
+
+    if (end_center_y <= start_center_y)
+    {
+        return 0;
+    }
+
+    int curvature_n = -55; // 控制贝塞尔弯曲度
+    uint8_t curve_start_x = XM / 2;
+    Get_curve_line(curve_start_x, start_center_y, end_center_x, end_center_y, curvature_n);
+    IF = curve;
+
+    return end_center_y;
+}
+
+/******************************************************************************
+ * 函数名称     :uint8_t Deal_crossroads()
+ * 描述        :十字路口的识别和处理
+ * 进入参数     : void
+ * 返回参数     :end_center_y
+ * 使用实例     :Go_Annulus();
+ ******************************************************************************/
+uint8_t Deal_crossroads ()
+{
+    if (elements_Mode == YES && elements_Lock[elements_index] != Disappear_)
+    {
+        return 0;
+    }
+//无四边缘，返�?
+    if ((b_lost_num + t_lost_num + l_lost_num + r_lost_num) <= 3)
+    {
+        return 0;
+    }
+    if ((b_lost_num + t_lost_num + l_lost_num + r_lost_num) == 3 && l_lost_num + r_lost_num == 0)
+    {
+        return 0;
+    }
+//没有底端区域，返�?
+    if (b_lost_num == 0 || t_lost_num == 0)
+    {
+        return 0;
+    }
+    if (b_lost_tip > Deal_W / 2) //横向广底�?
+    {
+        return 0;
+    }
+    if ((b_lost_num + t_lost_num + l_lost_num + r_lost_num) == 4)
+    {
+        uint8_t point[4][2];
+        uint8_t j = 0;
+        if (b_lost_num)
+            for (int i = 0; i <= b_lost_num - 1 && j <= 3; i++)
+            {
+                point[j][0] = b_center[i];
+                point[j][1] = Deal_Bottom;
+//        qout<<j<<i<<point[j][0]<<point[j][1];
+                j++;
+            }
+        if (r_lost_num)
+            for (int i = 0; i <= r_lost_num - 1 && j <= 3; i++)
+            {
+                point[j][0] = Deal_Right;
+                point[j][1] = r_center[i];
+//        qout<<j<<i<<point[j][0]<<point[j][1];
+                j++;
+            }
+        if (t_lost_num)
+            for (int i = t_lost_num - 1; i >= 0 && j <= 3; i--)
+            {
+                point[j][0] = t_center[i];
+                point[j][1] = Deal_Top;
+//        qout<<j<<i<<point[j][0]<<point[j][1];
+                j++;
+            }
+        if (l_lost_num)
+            for (int i = l_lost_num - 1; i >= 0 && j <= 3; i--)
+            {
+                point[j][0] = Deal_Left;
+                point[j][1] = l_center[i];
+//        qout<<j<<i<<point[j][0]<<point[j][1];
+                j++;
+            }
+        if (j < 3)
+        {
+            return 0;
+        }
+        if (my_abs(point[1][0] - point[2][0]) < Deal_W * 2 / 5 || my_abs(point[2][0] - point[3][0]) < Deal_W * 2 / 5
+                || my_abs(point[1][0] - point[3][0]) < Deal_W * 2 / 5)
+        {
+            return 0;
+        }
+        //中线直线判断
+        uint8_t Black_num = 0;
+        float k = ((float) point[2][0] - (float) point[0][0]) / ((float) point[2][1] - (float) point[0][1]);
+        for (uint8_t i = point[0][1]; i <= point[2][1]; ++i)
+        {
+            if (imgOSTU[i][(uint8_t) (point[2][0] + k * (i - point[0][1]))] != White)
+            {
+                Black_num++;
+            }
+        }
+//    qout<<Black_num;
+        if (Black_num < Deal_H / 2)
+        {
+            start_center_x = point[0][0];
+            start_center_y = point[0][1];
+            end_center_x = point[2][0];
+            end_center_y = point[2][1];
+            for (uint8_t i = start_center_y; i <= end_center_y; ++i)
+            {
+                mid_line[i] = (float) (start_center_x + k * (i - start_center_y));
+                imgOSTU[i][(uint8_t) mid_line[i]] = Control_line;
+            }
+
+            return end_center_y;
+        }
+        else
+        {
+            return 0;
+        }
+    }
+    float White_num[12] = {0};
+    float Black_num[12] = {0};
+//顺时针四边缘统计
+    int point[6][2] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}};
+    int j = 0;
+    int count_piont = 0;
+    float k_count[12] = {0};
+    if (r_lost_num)
+        for (int i = 0; i <= r_lost_num - 1 && j <= 5; i++)
+        {
+            point[j][0] = Deal_Right;
+            point[j][1] = r_center[i];
+            j++;
+        }
+    if (t_lost_num)
+        for (int i = t_lost_num - 1; i >= 0 && j <= 5; i--)
+        {
+            point[j][0] = t_center[i];
+            point[j][1] = Deal_Top;
+            j++;
+        }
+    if (l_lost_num)
+        for (int i = l_lost_num - 1; i >= 0 && j <= 5; i--)
+        {
+            point[j][0] = Deal_Left;
+            point[j][1] = l_center[i];
+            j++;
+        }
+    count_piont = j - 1;
+    if (count_piont > 5)
+    {
+        return 0;
+    }
+    for (int i = 0; i <= b_lost_num - 1 && i < 2; i++)
+    {
+        for (int j = 0; j <= count_piont && j < 6; j++)
+        {
+            int start_x = b_center[i];
+            int start_y = start_center_y;
+            int end_x = point[j][0];
+            int end_y = point[j][1];
+            int index = 6 * i + j;
+            if (end_y <= start_y)
+            {
+                Black_num[index] = 0;
+                White_num[index] = 0;
+                continue;  // 跳过无效点对
+            }
+            float k = ((float) end_x - (float) start_x) / ((float) end_y - (float) start_y);
+            k_count[index] = k;
+            uint8_t y_start = (start_y < end_y) ? start_y : end_y;
+            uint8_t y_end = (start_y < end_y) ? end_y : start_y;
+            for (uint8_t y = start_y; y <= end_y; ++y)
+            {
+                int x = (float) (start_x + k * (y - start_y));
+                if (x > Deal_Right)
+                {
+                    x = Deal_Right;  // 钳制到有效范�?
+                }
+                else if (x < Deal_Left)
+                {
+                    x = Deal_Left;
+                }
+
+                if (imgOSTU[y][x] == White)
+                {
+                    White_num[index] += Length_5cm[0] / Length_5cm[y];
+                }
+                else
+                {
+                    Black_num[index] += Length_5cm[0] / Length_5cm[y];
+                    imgOSTU[y][x] = Judge_line;
+                }
+
+            }
+        }
+    }
+    int Straight_index = 0;
+    float Straight_scale = 0;
+    for (int i = 0; i <= b_lost_num - 1 && i < 2; i++)
+    {
+        for (int j = 0; j <= count_piont && j < 6; j++)
+        {
+            int index = 6 * i + j;
+            float scale = 0;
+
+            if (White_num[index] > 15 && White_num[index] > Black_num[index])
+            {
+                scale = (float) White_num[index] / ((float) White_num[index] + (float) Black_num[index]);
+            }
+            else
+            {
+                scale = 0;
+            }
+
+            if (scale > Straight_scale)
+            {
+                Straight_scale = scale;
+                Straight_index = index;
+            }
+            else if (scale >= Straight_scale * 0.7 && scale != 0)
+            {
+                int index_y = point[(int) index % 6][1];
+                int Straight_y = point[(int) Straight_index % 6][1];
+
+                if (index_y >= Straight_y - 10)
+                {
+                    if (2 * k_count[index] > 0 && 2 * k_count[Straight_index] < 0)  //取误差斜率同�?
+                    {
+                        Straight_scale = scale;
+                        Straight_index = index;
+                    }
+                    else if (2 * k_count[index] < 0 && 2 * k_count[Straight_index] > 0)  //取误差斜率同�?
+                    {
+                        // Straight_scale = Straight_scale;
+                        // Straight_index = Straight_index;
+                    }
+                    else
+                    {
+                        float index_k = 2 - k_count[index];
+                        float Straight_k = 2 - k_count[Straight_index];
+                        index_k = index_k > -index_k ? index_k : -index_k;
+                        Straight_k = Straight_k > -Straight_k ? Straight_k : -Straight_k;
+                        if (index_k < Straight_k)
+                        {
+                            Straight_scale = scale;
+                            Straight_index = index;
+                        }
+                    }
+                }
+
+            }
+        }
+    }
+
+    start_center_x = b_center[(int) Straight_index / 6];
+    end_center_x = point[(int) Straight_index % 6][0];
+    end_center_y = point[(int) Straight_index % 6][1];
+    if (end_center_y <= start_center_y)
+    {
+        return 0;
+    }
+    float k = ((float) end_center_x - (float) start_center_x) / ((float) end_center_y - (float) start_center_y);
+    for (uint8_t i = start_center_y; i <= end_center_y; ++i)
+    {
+        mid_line[i] = (float) (start_center_x + k * (i - start_center_y));
+        if (mid_line[i] > Deal_Right)
+        {
+            mid_line[i] = Deal_Right;  // 钳制到有效范�?
+        }
+        else if (mid_line[i] < Deal_Left)
+        {
+            mid_line[i] = Deal_Left;
+        }
+        imgOSTU[i][(uint8_t) mid_line[i]] = Control_line;
+    }
+
+    return end_center_y;
+
+    return 0;
+}
+
+void Get_curve_line (uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, int8_t n)
+{
+// 1. 安全校验
+    if (y1 >= y2)
+        return;
+
+// 2. 曲线参数计算（二次贝塞尔�?
+    float control_offset = n * 0.5f;
+    float cx = (x1 + x2) / 2.0f + control_offset;
+    float cy = (y1 + y2) / 2.0f;
+
+// 3. 路径生成
+    for (uint8_t y = y1; y <= y2; y++)
+    {
+        float t = (float) (y - y1) / (y2 - y1);
+        float x = (1 - t) * (1 - t) * x1 + 2 * (1 - t) * t * cx + t * t * x2;
+
+        // 边界保护（确保在图像范围内）
+        if (x < 0)
+            x = 0;
+        if (x > XX)
+            x = XX;
+
+        // 4. 更新导航线和图像标记
+        mid_line[y] = (uint8_t) x;
+        imgOSTU[y][(uint8_t) x] = Control_line; // DEBUG
+    }
+}
+/******************************************************************************
+ * 函数名称     : uint8_t Deal_Turn_State(uint8_t near_left_lost, uint8_t near_right_lost, uint8_t *stop_line)
+ * 描述        :
+ * 返回参数     :
+ ******************************************************************************/
+uint8_t Deal_Turn_State (uint8_t *stop_line)
+{
+
+    uint8_t cmd_len = sizeof(Turn_Command) / sizeof(Turn_Command[0]);
+    //当前第几个指�?
+    uint8_t preview_idx = Junction_Index;
+    if (preview_idx >= cmd_len)
+    {
+        preview_idx = cmd_len - 1;
+    }
+    int8_t Last_idx = preview_idx - 1;
+    if (Junction_Index >= cmd_len &&
+        road_turn_state == ROAD_STRAIGHT)
+    {
+        return 0;
+    }
+    static uint8_t V = 0;
+    if (Last_idx < 0)
+    {
+        Last_idx = 0;
+        V = 1;
+    }
+    else
+        V = 0;
+    uint8_t script_wants_left = (Turn_Command[preview_idx] == 0);
+    uint8_t script_wants_right = (Turn_Command[preview_idx] == 1);
+    uint8_t script_wants_straight = (Turn_Command[preview_idx] == 2);
+    uint8_t last_script_wants_left = (Turn_Command[Last_idx] == 0);
+    uint8_t last_script_wants_right = (Turn_Command[Last_idx] == 1);
+    uint8_t last_script_wants_straight = (Turn_Command[Last_idx] == 2);
+    uint8_t t_precursor_right = script_wants_right && b_lost_num > 0 && l_lost_num == 1 && r_lost_num == 0
+            && t_lost_num == 0 && rightmost[0] >= Deal_Right - 40 && rightmost[0] - leftmost[0] > 110
+            && (rightmost[1] + leftmost[1]) / 2 > Deal_Top - 40 && my_abs(rightmost[1] - leftmost[1]) < 22;
+
+    uint8_t t_precursor_left = script_wants_left && b_lost_num > 0 && r_lost_num == 1 && l_lost_num == 0
+            && t_lost_num == 0 && leftmost[0] <= Deal_Left + 40 && rightmost[0] - leftmost[0] > 110
+            && (rightmost[1] + leftmost[1]) / 2 > Deal_Top - 40 && my_abs(rightmost[1] - leftmost[1]) < 22;
+
+    uint8_t top_forward_stop = 0;
+    //   top_forward_stop = Find_Top_Forward_Point();
+    if (Is_Seventh_Straight_Lock())
+    {
+        /* 清除可能残留的普通弯道状态 */
+        Normal_Curve_Force_Exit();
+
+        turn_confirm_cnt = 0;
+        close_turn_hold_cnt = 0;
+
+        /* 强制按照直道拉线 */
+        *stop_line = Get_top_straightline();
+
+
+
+        IF = straightlineS;
+        A = 70;       // 调试标志
+        return 1;     // 关键：阻止路口和普通左右弯道逻辑继续执行
+    }
+
+    uint8_t top_side_y_close = 0;
+    uint8_t top_side_x_close = 0;
+    uint8_t lr_side_y_high = 0;
+    uint8_t lr_toohighlow = 0;
+    if (t_lost_num)
+    {
+        if (l_lost_num > 0)
+        {
+            if ( l_center[l_lost_num - 1] >102)
+            {
+                top_side_y_close = 1;
+            }
+            if (t_center[0] < Deal_Left + 26)
+            {
+                top_side_x_close = 1;
+            }
+            if (l_center[l_lost_num - 1] > 42)
+            {
+                lr_side_y_high = 1;
+            }
+            if ((l_lost_num == 1 && l_lost_tip > 21) || l_lost_tip > 25 || l_lost_tip < 3
+                    || (l_lost_tip > 15) && l_center[l_lost_num - 1] < 45)
+            {
+                lr_toohighlow = 1;
+            }
+        }
+
+        if (r_lost_num)
+        {
+            if (r_center[r_lost_num - 1] > 102)
+            {
+                top_side_y_close = 1;
+            }
+
+            if (t_center[0] > Deal_Right - 26)
+            {
+                top_side_x_close = 1;
+            }
+            if (r_center[r_lost_num - 1] > 42)
+            {
+                lr_side_y_high = 1;
+            }
+            if ((r_lost_num == 1 && r_lost_tip > 16) || r_lost_tip > 21 || r_lost_tip < 3)
+            {
+                lr_toohighlow = 1;
+            }
+        }
+    }
+
+    uint8_t turn_point = (l_lost_num && r_lost_num && my_abs(l_center[l_lost_num - 1] - r_center[r_lost_num - 1]) < 40)
+            || ((t_lost_num == 1 || top_forward_stop == 1) && !lr_toohighlow && !top_side_y_close && lr_side_y_high
+            /*(script_wants_straight || !top_side_x_close)*/&& (l_lost_num || r_lost_num) && t_lost_tip < 30
+                    && t_lost_tip > 3 && !top_side_x_close);
+    int8_t turn_has_forward = 0;
+    /* if (turn_point)
+     {
+     turn_has_forward = Has_Forward_Road_After_T();
+     if (turn_has_forward)
+     A = 13;
+     }*/
+
+    uint8_t can_straight = (road_turn_state == ROAD_STRAIGHT || road_turn_state == ROAD_STRAIGHT_PASS);
+    static uint8_t junction_curve_hold_cnt = 0;
+    uint8_t normal_left_like = (b_lost_num > 0 && leftmost[0] < Deal_Left + 12 && t_lost_num == 0 && r_lost_num == 0);
+
+    uint8_t normal_right_like = (b_lost_num > 0 && rightmost[0] > Deal_Right - 12 && t_lost_num == 0 && l_lost_num == 0);
+
+    uint8_t junction_curve_wait = can_straight && !turn_point
+            && ((script_wants_left && normal_right_like) || (script_wants_right && normal_left_like));
+
+    if (junction_curve_wait)
+    {
+        if (junction_curve_hold_cnt < 1 && (Length - Last_panduan_Length > 30.0f))
+        {
+            junction_curve_hold_cnt++;
+
+            Last_panduan_Length = Length;
+
+            *stop_line = Get_top_straightline();
+            A = 33;
+
+            if (*stop_line == 0)
+            {
+                IF = IF_L;
+            }
+
+            return 1;
+        }
+    }
+    else
+    {
+        junction_curve_hold_cnt = 0;
+    }
+    if (turn_point)
+    {
+        A = 20;
+
+        if (lvbo_diode_xia() || lvbo_diode_shang() || lvbo_diode_row_white())
+        {
+            Last_Diode_Filter_Length = Length;
+
+            turn_confirm_cnt = 0;
+            turn_exit_cnt = 0;
+            road_turn_state = ROAD_STRAIGHT;
+            Turn_Yaw_Stop();
+            A = 12;
+            *stop_line = Get_top_straightline();
+
+            if (*stop_line == 0)
+            {
+                IF = IF_L;
+            }
+
+            return 1;
+        }
+        // 剧本要左拐，但当前还没有左丢线：先按直线走，别提前左�?
+        if (can_straight && script_wants_left && l_lost_num == 0)
+        {
+
+            A = 31;
+
+            if (*stop_line == 0)
+            {
+                IF = IF_L;
+            }
+
+            return 0;
+        }
+
+        // 剧本要右拐，但当前还没有右丢线：退出去让别的逻辑接管
+        if (can_straight && script_wants_right && r_lost_num == 0)
+        {
+
+            A = 32;
+
+            if (*stop_line == 0)
+            {
+                IF = IF_L;
+            }
+
+            return 0;
+        }
+
+    }
+    if (Length - Last_Diode_Filter_Length < 0)
+    {
+        A = 30;
+        *stop_line = Get_top_straightline();
+        return 1;
+    }
+
+    uint8_t real_turn_point = turn_point;
+
+    uint8_t left_exit = (b_lost_num > 0 /*&& t_lost_num > 0*/
+            && (Turn_Yaw_Enough()
+                    || (l_lost_num == 0
+                            || ((l_center[l_lost_num - 1] > Deal_Top - 5 || t_lost_tip > 22)
+                                    && (Length - Last_Valid_Junction_Length > 13)))));
+    uint8_t right_exit = (b_lost_num > 0 /*&& t_lost_num > 0*/
+            && (Turn_Yaw_Enough()
+                    || (r_lost_num == 0
+                            || ((r_center[r_lost_num - 1] > Deal_Top - 5 || t_lost_tip > 22)
+                                    && (Length - Last_Valid_Junction_Length > 13)))));
+    uint8_t straight_exit = (!(l_lost_num || r_lost_num) && t_lost_num == 1);
+    *stop_line = 0;
+    debug_road_state = road_turn_state;
+//删
+    if (Junction_Index == 8
+            && debug_turn_cmd == 8
+            && road_turn_state == ROAD_STRAIGHT
+            && !right_curve_seen_8_to_9
+            && real_turn_point)
+    {
+        turn_confirm_cnt = 0;
+        close_turn_hold_cnt = 0;
+
+        *stop_line = Get_top_straightline();
+        IF = straightlineS;
+        A = 71;
+        return 1;
+    }
+
+    uint8_t interrupt_turn;
+    if ((!last_script_wants_straight && script_wants_right && !V)
+            || (!last_script_wants_straight && script_wants_right && !V))
+    {
+        interrupt_turn =r_lost_num&& r_center[r_lost_num - 1] > 65 && (Turn_Yaw_Enough() || road_turn_state == ROAD_STRAIGHT)
+                && (road_turn_state != ROAD_STRAIGHT) && real_turn_point
+                && ((Length - Last_Valid_Junction_Length) > 20);
+    }
+    else if ((!last_script_wants_straight && script_wants_left && !V)
+            || (!last_script_wants_straight && script_wants_left && !V))
+    {
+        interrupt_turn = l_lost_num&&l_center[l_lost_num - 1] > 65 && (Turn_Yaw_Enough() || road_turn_state == ROAD_STRAIGHT)
+                && (road_turn_state != ROAD_STRAIGHT) && real_turn_point
+                && ((Length - Last_Valid_Junction_Length) > 20);
+    }
+    else
+    {
+        interrupt_turn = (road_turn_state != ROAD_STRAIGHT) && real_turn_point
+                && ((Length - Last_Valid_Junction_Length) > 40);
+    }
+
+    if (interrupt_turn)
+    {
+        A = 21;   // 调试：抢断进入新拐点
+
+        Normal_Curve_Force_Exit();
+        turn_confirm_cnt = 0;
+        turn_exit_cnt = 0;
+        turn_gap_cm = Length - Last_Valid_Junction_Length;
+        Last_Valid_Junction_Length = Length;
+
+        close_turn = Last_Turn_End_Length >= 0.0f && turn_gap_cm >= 0.0f && turn_gap_cm < CLOSE_TURN_DIST_CM;
+
+        /* 一旦开始等待，即使第二帧距离超过阈值，也要把两帧走�?*/
+
+        /* if ((close_turn || close_turn_hold_cnt > 0) && close_turn_hold_cnt < CLOSE_TURN_HOLD_FRAMES)
+         {
+         close_turn_hold_cnt++;
+         turn_confirm_cnt = 0;
+
+         *stop_line = Get_top_straightline();
+
+         if (*stop_line == 0)
+         {
+         IF = IF_L;
+         }
+
+         A = 34;
+         return 1;
+         }*/
+
+        uint8_t idx = Junction_Index;
+        if (idx >= cmd_len)
+        {
+            idx = cmd_len - 1;
+        }
+
+        uint8_t cmd = Turn_Command[idx];
+        debug_turn_cmd = idx + 1;
+
+        if (idx == 7)
+        {
+            Eighth_Turn_End_Length = -1.0f;
+            right_curve_seen_8_to_9 = 0;
+        }
+
+        if (Junction_Index < cmd_len)
+        {
+            Junction_Index++;
+        }
+
+        if (cmd == 0)
+        {
+            road_turn_state = ROAD_LEFT_TURN;
+            Turn_Yaw_Reset();
+            *stop_line = Get_top_straightline();
+        }
+        else if (cmd == 1)
+        {
+            road_turn_state = ROAD_RIGHT_TURN;
+            Turn_Yaw_Reset();
+            *stop_line = Get_top_straightline();
+        }
+        else
+        {
+            road_turn_state = ROAD_STRAIGHT_PASS;
+            Turn_Yaw_Stop();
+
+            if (top_forward_stop)
+            {
+                *stop_line = Draw_Top_Forward_Line();
+            }
+
+            if (*stop_line == 0)
+            {
+                *stop_line = Get_top_straightline();
+            }
+
+            if (*stop_line == 0)
+            {
+                IF = IF_L;
+            }
+        }
+
+        return 1;
+    }
+
+    switch (road_turn_state)
+    {
+
+        case ROAD_STRAIGHT :
+        {
+
+            if (turn_has_forward)
+            {
+                A = 16;
+                turn_confirm_cnt = 0;
+                road_turn_state = ROAD_STRAIGHT;
+
+                *stop_line = Get_top_straightline();
+
+                if (*stop_line == 0)
+                {
+                    Get_curve_line(XM / 2, start_center_y, XM / 2, Deal_Top, 0);
+                    *stop_line = Deal_Top;
+                    IF = straightlineS;
+                }
+
+                return 1;
+            }
+            if (!real_turn_point)
+            {
+                close_turn_hold_cnt = 0;
+
+                if (!real_turn_point)
+                {
+                    A = 17;
+                    if ((t_precursor_left || t_precursor_right))
+                    {
+                        A = 19;
+                        *stop_line = Get_top_straightline();
+                        Normal_Curve_Force_Exit();
+
+                        if (*stop_line == 0)
+                        {
+                            IF = IF_L;
+                        }
+
+                        return 1;
+                    }
+
+                    turn_confirm_cnt = 0;
+                    return 0;
+                }
+                A = 18;
+                turn_confirm_cnt = 0;
+                return 0;   // 没有处理，交给普通巡线逻辑
+            }
+            turn_gap_cm = Length - Last_Valid_Junction_Length;
+
+            close_turn = Last_Turn_End_Length >= 0.0f && turn_gap_cm >= 0.0f && turn_gap_cm < CLOSE_TURN_DIST_CM;
+
+            /* 一旦开始等待，即使第二帧距离超过阈值，也要把两帧走�?*/
+            if ((close_turn || close_turn_hold_cnt > 0) && close_turn_hold_cnt < CLOSE_TURN_HOLD_FRAMES&&(t_lost_num||debug_turn_cmd==7))
+            {
+                close_turn_hold_cnt++;
+                turn_confirm_cnt = 0;
+
+                *stop_line = Get_top_straightline();
+
+                if (*stop_line == 0)
+                {
+                    Last_Error = 0;
+                    IF = IF_L;
+                }
+
+                A = 34;
+                return 1;
+            }
+
+            turn_confirm_cnt++;
+
+            if (turn_confirm_cnt < 1)
+            {
+                A = 22;
+                return 1;   // 先确认几帧，别让普通逻辑乱接
+            }
+
+            // 已经连续确认到拐点了，但还要看里程够不够
+            if (Length - Last_Valid_Junction_Length < MIN_JUNCTION_DIST)
+            {
+                A = 23;
+                // 还在同一个拐�?元器件干扰范围内，不允许消耗剧本索�?
+                turn_confirm_cnt = 2;   // 保持确认态，防止反复�?计数
+                *stop_line = Get_top_straightline();
+
+                if (*stop_line == 0)
+                {
+                    IF = IF_L;
+                }
+
+                return 1;
+            }
+
+            // 通过里程门槛，才真正接受为新拐点
+            Normal_Curve_Force_Exit();
+
+            close_turn_hold_cnt = 0;
+            turn_confirm_cnt = 0;
+            Last_Valid_Junction_Length = Length;
+
+            uint8_t idx = Junction_Index;
+            if (idx >= cmd_len)
+            {
+                idx = cmd_len - 1;
+            }
+
+            uint8_t cmd = Turn_Command[idx];
+            debug_turn_cmd = idx + 1; // 当前正在执行第几条命令（�?1 开始）
+
+            if (idx == 7)
+            {
+                Eighth_Turn_End_Length = -1.0f;
+                right_curve_seen_8_to_9 = 0;
+            }
+
+            if (Junction_Index < cmd_len)
+            {
+                Junction_Index++;
+            }
+
+            if (cmd == 0)
+            {
+                A = 24;
+                road_turn_state = ROAD_LEFT_TURN;
+                Turn_Yaw_Reset();
+                *stop_line = Left_curve_line();
+            }
+            else if (cmd == 1)
+            {
+                A = 25;
+                road_turn_state = ROAD_RIGHT_TURN;
+                Turn_Yaw_Reset();
+                *stop_line = Right_curve_line();
+            }
+            else
+            {
+                A = 26;
+                road_turn_state = ROAD_STRAIGHT_PASS;
+                Turn_Yaw_Stop();
+
+                if (top_forward_stop)
+                {
+                    *stop_line = Draw_Top_Forward_Line();
+                }
+
+                if (*stop_line == 0)
+                {
+                    *stop_line = Get_top_straightline();
+                }
+            }
+
+            return 1;
+        }
+
+        case ROAD_LEFT_TURN :
+        {
+
+            if (left_exit)
+            {
+                A = 42;
+
+                if (++turn_exit_cnt >= 1 && Turn_Yaw_Enough())
+                {
+                    A = 43;
+
+                    Last_Turn_End_Length = Length;
+                    if (debug_turn_cmd == 8)
+                    {
+                        Eighth_Turn_End_Length = Length;
+                    }
+                    *stop_line = Get_top_straightline();
+                    road_turn_state = ROAD_STRAIGHT;
+                    turn_exit_cnt = 0;
+                    Turn_Yaw_Stop();
+                }
+                else
+                {
+                    *stop_line = Left_curve_line();
+                }
+            }
+            else
+            {
+                A = 41;
+                *stop_line = Left_curve_line();
+                turn_exit_cnt = 0;
+            }
+
+            return 1;
+        }
+
+        case ROAD_RIGHT_TURN :
+        {
+
+            if (right_exit)
+            {
+                A = 52;
+                if (++turn_exit_cnt >= 1 && Turn_Yaw_Enough())
+                {
+                    Last_Turn_End_Length = Length;
+                    if (debug_turn_cmd == 8)
+                    {
+                        Eighth_Turn_End_Length = Length;
+                    }
+                    *stop_line = Get_top_straightline();
+
+                    road_turn_state = ROAD_STRAIGHT;
+                    turn_exit_cnt = 0;
+                    Turn_Yaw_Stop();
+
+                }
+                else
+                {
+                    *stop_line = Right_curve_line();
+
+                }
+
+            }
+            else
+            {
+                A = 51;
+                *stop_line = Right_curve_line();
+                turn_exit_cnt = 0;
+            }
+
+            return 1;
+        }
+        case ROAD_STRAIGHT_PASS :
+        {
+
+            // 离开当前拐点：左�?顶部路口特征消失，只剩普通底部到顶部直线
+
+            if (straight_exit)
+            {
+                A = 62;
+                *stop_line = Get_top_straightline();
+                if (++turn_exit_cnt >= 2)
+                {
+                    road_turn_state = ROAD_STRAIGHT;
+                    turn_exit_cnt = 0;
+                    if (debug_turn_cmd == 8)
+                    {
+                        Eighth_Turn_End_Length = Length;
+                    }
+                }
+            }
+            else
+            {
+                A = 61;
+                *stop_line = Get_top_straightline();
+                turn_exit_cnt = 0;
+            }
+            if (*stop_line == 0)
+            {
+                A = 63;
+                return 0;
+            }
+
+            return 1;
+        }
+    }
+
+    road_turn_state = ROAD_STRAIGHT;
+    return 0;
+}
+/******************************************************************************
+ * 函数名称     : uint8_t Has_Forward_Road_After_T(void)
+ * 描述        : 过滤T元器件干扰，防止误判成左右丢�?
+ * 返回参数     :
+ ******************************************************************************/
+uint8_t Has_Forward_Road_After_T (void)
+{
+
+    if (leftmost[0] > Deal_Left + 15 || rightmost[0] < Deal_Right - 15)
+    {
+        return 0;
+    }
+
+    uint8_t y0 = (leftmost[1] + rightmost[1]) / 2;
+    uint8_t x0 = (leftmost[0] + rightmost[0]) / 2;
+    uint8_t hit_rows = 0;
+
+    if (y0 + 5 > Deal_Top)
+        return 0;
+
+    // =====================================================
+    // 1. 左右端点拉线统计白点，兼容斜着进入元器�?
+    // =====================================================
+    int x1 = leftmost[0];
+    int y1 = leftmost[1];
+    int x2 = rightmost[0];
+    int y2 = rightmost[1];
+
+    /*
+     int dx = x2 - x1;
+     int dy = y2 - y1;
+     int steps = my_abs(dx) > my_abs(dy) ? my_abs(dx) : my_abs(dy);
+
+     if (steps < 20)
+     {
+     return 0;
+     }
+
+     int line_hit = 0;
+
+     for (int i = 0; i <= steps; i++)
+     {
+     int x = x1 + dx * i / steps;
+     int y = y1 + dy * i / steps;
+
+     uint8_t hit = 0;
+
+     // 允许 3x3 邻域容错，防止线刚好压在白线边缘
+     for (int yy = y - 1; yy <= y + 1; yy++)
+     {
+     for (int xx = x - 1; xx <= x + 1; xx++)
+     {
+     if (xx >= Deal_Left && xx <= Deal_Right && yy >= Deal_Bottom && yy <= Deal_Top)
+     {
+     if (imgOSTU[yy][xx] == White || imgOSTU[yy][xx] == Left_line || imgOSTU[yy][xx] == Right_line)
+     {
+     hit = 1;
+     break;
+     }
+     }
+     }
+
+     if (hit)
+     {
+     break;
+     }
+     }
+
+     if (hit)
+     {
+     line_hit++;
+     }
+     }
+
+     // 线上白点比例不够，不认为是元器件横向/斜向串门
+     if (line_hit * 100 < (steps + 1) * 55)
+     {
+     return 0;
+     }
+     */
+    // 后面“有没有前方路”的判断从左右端点中点开始更合理
+    y0 = (y1 + y2) / 2;
+
+    for (uint8_t y = y0 + 5; y <= y0 + 15 && y <= Deal_Top; y++)
+    {
+        uint8_t cnt = 0;
+
+        for (int x = x0 - 5; x <= x0 + 5; x++)
+        {
+            if (x >= Deal_Left && x <= Deal_Right && imgOSTU[y][x] == White)
+            {
+                cnt++;
+            }
+        }
+
+        if (cnt >= 4)
+        {
+            hit_rows++;
+        }
+        if (hit_rows >= 8)
+        {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+/******************************************************************************
+ * 函数名称     : uint8_t Handle_dianzu(void)
+ * 描述        : 优化电阻
+ * 返回参数     : end_center_y
+ ******************************************************************************/
+uint8_t Handle_dianzu (void)
+{
+    if (b_lost_num == 0)
+        return 0;
+
+    if (t_lost_num != 2)
+        return 0;
+
+    // 电阻一般不应该伴随左右侧丢线，否则容易和路�?T/Y�?
+    if (l_lost_num != 0 || r_lost_num != 0)
+        return 0;
+
+    int img_center = XM / 2;        // 188 / 2 = 94
+    int top_l = t_center[0];
+    int top_r = t_center[1];
+
+    if (top_l > top_r)
+    {
+        int temp = top_l;
+        top_l = top_r;
+        top_r = temp;
+    }
+
+    int top_mid = (top_l + top_r) / 2;
+    int top_gap = top_r - top_l;
+
+    // 参数先保守一点，后面看实车调
+    if (my_abs(top_mid - img_center) > 20)
+        return 0;
+
+    // 两个顶部丢线不能太近，也不能太远
+    // 太近：可能只是一个顶部区域被切碎
+    // 太远：可能是T/Y/十字或者其他元器件
+    if (top_gap < 6 || top_gap > 45)
+        return 0;
+
+    end_center_x = top_mid;
+    end_center_y = Deal_Top;
+
+    if (end_center_y <= start_center_y)
+        return 0;
+
+    float k = ((float) end_center_x - (float) start_center_x) / ((float) end_center_y - (float) start_center_y);
+
+    for (uint8_t y = start_center_y; y <= end_center_y; y++)
+    {
+        int x = (int) (start_center_x + k * (y - start_center_y));
+
+        if (x < Deal_Left)
+            x = Deal_Left;
+        if (x > Deal_Right)
+            x = Deal_Right;
+
+        mid_line[y] = (uint8_t) x;
+        imgOSTU[y][mid_line[y]] = Control_line;
+    }
+
+    IF = straightlineS;
+    return end_center_y;
+}
+/******************************************************************************
+ * 函数名称     : uint8_t lvbo_diode_shang(void)
+ * 描述        : 滤掉二极�?
+ * 返回参数     : end_center_y
+ ******************************************************************************/
+uint16 white_sum = 0;
+uint8_t lvbo_diode_shang (void)
+{
+    if (t_lost_num == 0)
+        return 0;
+    if (r_lost_num && l_lost_num)
+        return 0;
+    if (my_abs(leftmost[1] - rightmost[1]) > 23)
+        return 0;
+    if (my_abs(leftmost[0] - rightmost[0]) < 63)
+    {
+        A = 18;
+        return 0;
+    }
+
+    if (r_lost_tip > 20 || l_lost_tip > 20)
+        return 0;
+    if (rightmost[0] - t_center[0] < 18 || rightmost[0] - t_center[0] > 75)
+    {
+        A = 18;
+        return 0;
+    }
+    if (t_center[0] - leftmost[0] < 18 || t_center[0] - leftmost[0] > 75)
+    {
+        A = 18;
+        return 0;
+    }
+    if (leftmost[1] > Deal_Top - 20 || rightmost[1] > Deal_Top - 20)
+        return 0;
+    if (b_lost_num > 1)
+        return 0;
+    if (t_lost_num > 1)
+        return 0;
+    if (my_abs(t_center[0] - (leftmost[0] + rightmost[0]) / 2) > 30)
+        return 0;
+    int bottom_x = (int) b_center[0];
+    int middle_x = ((int) leftmost[0] + (int) rightmost[0]) / 2;
+    int top_x = (int) t_center[0];
+
+    /* 三点必须依次增大或依次减小 */
+    if (!((bottom_x < middle_x && middle_x < top_x) || (bottom_x > middle_x && middle_x > top_x)))
+    {
+        return 0;
+    }
+
+    int start_x;
+    int start_y;
+    if (r_lost_num)
+    {
+        start_y = (leftmost[1] + rightmost[1]) / 2 + r_lost_tip / 2;
+    }
+    else
+    {
+        start_y = (leftmost[1] + rightmost[1]) / 2 + l_lost_tip / 2;
+
+    }
+
+    if ((rightmost[0] + leftmost[0]) / 2 < 94)
+        start_x = (t_center[0] + b_center[0]) / 2;
+    else
+        start_x = (t_center[0] + b_center[0]) / 2;
+
+    if (imgOSTU[start_y][start_x] == Black)
+        return 0;
+    white_sum = 0;
+    uint8 valid_rows = 0;
+
+    for (int i = 0; i < 10; i++)
+    {
+        int y = start_y + i;          // 往�?
+        int x_end = start_x + i;
+        int x_start = start_x - i;
+
+        if (y > Deal_Top || y < Deal_Bottom)
+        {
+            break;
+        }
+
+        if (x_end > Deal_Right)
+        {
+            x_end = Deal_Right;
+        }
+        if (x_end < Deal_Left)
+        {
+            x_end = Deal_Left;
+        }
+        if (x_start < Deal_Left)
+        {
+            x_start = Deal_Left;
+        }
+        if (x_start > Deal_Right)
+        {
+            x_start = Deal_Right;
+        }
+
+        uint8 row_white = 0;
+
+        for (int x = x_start; x <= x_end; x++)
+        {
+            if (imgOSTU[y][x] == White || imgOSTU[y][x] == Left_line || imgOSTU[y][x] == Right_line
+                    || imgOSTU[y][x] == Control_line)
+            {
+                row_white++;
+            }
+        }
+
+        white_sum += row_white;
+
+        if (row_white >= i * 3 / 2 + 1)
+        {
+            valid_rows++;
+        }
+    }
+
+    // 这两个阈值你可以先这么试
+    if (white_sum >= 89 && valid_rows >= 9)  //一�?89�?8�?
+    {
+        return 1;   // 像元器件，不当拐�?
+    }
+
+    return 0;
+}
+/******************************************************************************
+ * 函数名称     : uint8_t lvbo_diode_xia(void)
+ * 描述        : 滤掉二极�?
+ * 返回参数     : end_center_y
+ ******************************************************************************/
+
+uint8_t lvbo_diode_xia (void)
+{
+    if (t_lost_num == 0)
+        return 0;
+    if (r_lost_num && l_lost_num)
+        return 0;
+    if (my_abs(leftmost[1] - rightmost[1]) > 23)
+        return 0;
+    if (my_abs(leftmost[0] - rightmost[0]) < 63)
+    {
+        A = 18;
+        return 0;
+    }
+    if (r_lost_tip > 20 || l_lost_tip > 20)
+        return 0;
+    if (rightmost[0] - t_center[0] < 18 || rightmost[0] - t_center[0] > 75)
+    {
+        A = 18;
+        return 0;
+    }
+    if (t_center[0] - leftmost[0] < 18 || t_center[0] - leftmost[0] > 75)
+    {
+        A = 18;
+        return 0;
+    }
+    if (leftmost[1] > Deal_Top - 20 || rightmost[1] > Deal_Top - 20)
+        return 0;
+    if (b_lost_num > 1)
+        return 0;
+    if (t_lost_num > 1)
+        return 0;
+    if (my_abs(t_center[0] - (leftmost[0] + rightmost[0]) / 2) > 30)
+        return 0;
+    int bottom_x = (int) b_center[0];
+    int middle_x = ((int) leftmost[0] + (int) rightmost[0]) / 2;
+    int top_x = (int) t_center[0];
+
+    /* 三点必须依次增大或依次减小 */
+    if (!((bottom_x < middle_x && middle_x < top_x) || (bottom_x > middle_x && middle_x > top_x)))
+    {
+        return 0;
+    }
+
+    int start_x;
+    int start_y;
+    if (r_lost_num)
+    {
+        start_y = (leftmost[1] + rightmost[1]) / 2 - r_lost_tip / 2;
+    }
+    else
+    {
+        start_y = (leftmost[1] + rightmost[1]) / 2 - l_lost_tip / 2;
+
+    }
+
+    if ((rightmost[0] + leftmost[0]) / 2 < 94)
+        start_x = (t_center[0] + b_center[0]) / 2;
+    else
+        start_x = (t_center[0] + b_center[0]) / 2;
+
+    if (imgOSTU[start_y][start_x] == Black)
+        return 0;
+    white_sum = 0;
+    uint8 valid_rows = 0;
+
+    for (int i = 0; i < 10; i++)
+    {
+        int y = start_y - i;          // 往�?
+        int x_end = start_x + i;
+        int x_start = start_x - i;
+
+        if (y > Deal_Top || y < Deal_Bottom)
+        {
+            break;
+        }
+
+        if (x_end > Deal_Right)
+        {
+            x_end = Deal_Right;
+        }
+        if (x_end < Deal_Left)
+        {
+            x_end = Deal_Left;
+        }
+        if (x_start < Deal_Left)
+        {
+            x_start = Deal_Left;
+        }
+        if (x_start > Deal_Right)
+        {
+            x_start = Deal_Right;
+        }
+
+        uint8 row_white = 0;
+
+        for (int x = x_start; x <= x_end; x++)
+        {
+            if (imgOSTU[y][x] == White || imgOSTU[y][x] == Left_line || imgOSTU[y][x] == Right_line
+                    || imgOSTU[y][x] == Control_line)
+            {
+                row_white++;
+            }
+        }
+
+        white_sum += row_white;
+
+        if (row_white >= i * 3 / 2 + 1)
+        {
+            valid_rows++;
+        }
+    }
+
+    // 这两个阈值你可以先这么试
+    if (white_sum >= 89 && valid_rows >= 9)  //一�?89�?8�?
+    {
+        return 1;   // 像元器件，不当拐�?
+    }
+
+    return 0;
+}
+uint8_t lvbo_diode_row_white (void)
+{
+    uint8_t max_white = 0;
+    white_sum = 0;
+
+    if (r_lost_num == 0 && l_lost_num == 0)
+    {
+        return 0;
+    }
+    if (!t_lost_num)
+        return 0;
+    if (r_lost_num && r_center[r_lost_num - 1] > Deal_Bottom + 70)
+        return 0;
+    if (l_lost_num && l_center[l_lost_num - 1] > Deal_Bottom + 70)
+        return 0;
+
+    int start_y;
+
+    // 从最高的右丢线中心行开始，向图像上方统计总白点数
+    if (r_lost_num)
+    {
+        start_y = r_center[r_lost_num - 1];
+        for (int y = start_y; y <= start_y + 30; y++)
+        {
+            if (white_num_row[y] > max_white)
+            {
+                max_white = white_num_row[y];
+            }
+
+            white_sum += white_num_row[y];
+        }
+
+    }
+    else
+    {
+        start_y = l_center[l_lost_num - 1];
+        for (int y = start_y; y < start_y + 5; y++)
+        {
+            if (white_num_row[y] > max_white)
+            {
+                max_white = white_num_row[y];
+            }
+
+            white_sum += white_num_row[y];
+        }
+    }
+
+    // 单行特别宽，或者连续多行都很宽，就认为是大白块干扰
+    if (max_white > 94 && max_white < 140 && white_sum > 40 * 70)
+    {
+        return 1;
+    }
+
+    return 0;
+}
+static uint8_t Is_Standard_Normal_Left_Curve (void)
+{
+    if (!(b_lost_num == 1 && (l_lost_num == 1 || (l_lost_num == 2 && my_abs(l_center[0] - l_center[1]) < 30))
+            && t_lost_num == 0 && r_lost_num == 0))
+        return 0;
+
+    if (l_center[0] < Deal_Bottom + 65)
+        return 0;
+    if (l_center[l_lost_num-1] >102)
+
+            return 0;
+
+    if (l_lost_tip > 8)
+        return 0;
+    if (rightmost[0] > Deal_Right - 20 && rightmost[1] > 45)
+        return 0;
+    uint16 line_white;
+
+    line_white = Count_White_On_Line(start_center_x, start_center_y, Deal_Left, l_center[l_lost_num - 1]);
+
+    if (line_white > 80)
+    {
+        return 0;
+    }
+
+    return 1;
+}
+
+static uint8_t Is_Standard_Normal_Right_Curve (void)
+{
+    if (!(b_lost_num == 1 && (r_lost_num == 1 || (r_lost_num == 2 && my_abs(r_center[0] - r_center[1]) < 30))
+            && t_lost_num == 0 && l_lost_num == 0))
+        return 0;
+
+    if (r_center[0] < Deal_Bottom + 65)
+
+        return 0;
+    if (r_center[r_lost_num-1] >102)
+
+          return 0;
+
+    if (r_lost_tip > 12)
+        return 0;
+    if (leftmost[0] < Deal_Left + 20 && leftmost[1] > 45)
+        return 0;
+    uint16 line_white;
+
+    line_white = Count_White_On_Line(start_center_x, start_center_y, Deal_Right, r_center[r_lost_num - 1]);
+
+    if (line_white > 80)
+    {
+        return 0;
+    }
+
+    return 1;
+}
+
+uint8_t Continue_Normal_Curve_No_Start (uint8_t *stop_line)
+{
+    const uint8_t virtual_end_y = Deal_Bottom + 45;
+
+    if (normal_curve_state == NORMAL_CURVE_IDLE)
+    {
+        return 0;
+    }
+
+    // With no image, yaw alone stops the blind turn.
+    if (abs_f(turn_yaw_deg) >= NORMAL_CURVE_EXIT_ANGLE_DEG)
+    {
+        if (final_right_curve_active)
+        {
+            final_right_curve_active = 0;
+            Stop_Length = Length;
+            stopline_flag = 1;
+        }
+
+        Normal_Curve_Force_Exit();
+        return 0;
+    }
+
+    // Do not reuse stale lost-line points from the previous frame.
+    start_center_x = XM / 2;
+    start_center_y = Deal_Bottom;
+
+    if (normal_curve_state == NORMAL_CURVE_LEFT)
+    {
+        Get_curve_line(XM / 2, start_center_y, Deal_Left, virtual_end_y, 55);
+        *stop_line = virtual_end_y;
+        IF = curve;
+        A = 45;
+        return 1;
+    }
+
+    Get_curve_line(XM / 2, start_center_y, Deal_Right, virtual_end_y, -55);
+    *stop_line = virtual_end_y;
+    IF = curve;
+    A = 55;
+    return 1;
+}
+
+uint8_t Deal_Normal_Curve_State (uint8_t *stop_line)
+{
+
+    uint8_t normal_left_seen = (b_lost_num > 0 && l_lost_num > 0 && !t_lost_num && !r_lost_num);
+    uint8_t normal_right_seen = (b_lost_num > 0 && r_lost_num > 0 && !t_lost_num && !l_lost_num);
+
+    if (normal_curve_state == NORMAL_CURVE_IDLE)
+    {
+        uint8_t cmd_len = sizeof(Turn_Command) / sizeof(Turn_Command[0]);
+        //最后的右拐弯
+        if (!final_right_curve_used
+                && Junction_Index >= cmd_len
+                && road_turn_state == ROAD_STRAIGHT
+                && rightmost[1] < 85
+                && rightmost[0] > Deal_Right - 20)
+        {
+            uint16 line_white = Count_White_On_Line(start_center_x, start_center_y,
+                                                     rightmost[0], rightmost[1]);
+
+            if (line_white <= 35)
+            {
+                final_right_curve_used = 1;
+                final_right_curve_active = 1;
+                normal_curve_state = NORMAL_CURVE_RIGHT;
+                normal_curve_exit_cnt = 0;
+                Turn_Yaw_Reset();
+
+                *stop_line = Right_curve_line();
+                A = 56;       // 最后一个路口后的右弯兜底进入帧
+                return 1;
+            }
+        }
+
+        if (l_lost_num && l_center[l_lost_num - 1] < 25)
+            return 0;
+        if (r_lost_num && r_center[r_lost_num - 1] < 25)
+            return 0;
+        if (normal_left_seen)
+        {
+            if (Junction_Index == 9)
+            *stop_line = Has_Disconnected_Forward_Road();
+            A = 3;
+
+            if (*stop_line != 0)
+            {
+                return 1;
+            }
+            if (!Is_Standard_Normal_Left_Curve())
+            {
+                *stop_line = Left_curve_line();
+                A = 14;     // 非标准普通左弯：只补线，不进状态机
+                return 1;
+            }
+
+            normal_curve_state = NORMAL_CURVE_LEFT;
+            normal_curve_exit_cnt = 0;
+            Turn_Yaw_Reset();
+
+            *stop_line = Left_curve_line();
+            A = 40;
+            return 1;
+        }
+
+        if (normal_right_seen)
+        {
+            if (Junction_Index == 9)
+                *stop_line = Has_Disconnected_Forward_Road();
+            A = 6;
+
+            if (*stop_line != 0)
+            {
+                return 1;
+            }
+            if (!Is_Standard_Normal_Right_Curve())
+            {
+                if (Junction_Index == 8
+                        && debug_turn_cmd == 8
+                        && road_turn_state == ROAD_STRAIGHT)
+                {
+                    right_curve_seen_8_to_9 = 1;
+                }
+
+                *stop_line = Right_curve_line();
+                A = 15;     // 非标准普通右弯：只补线，不进状态机
+                return 1;
+            }
+
+            if (Junction_Index == 8
+                    && debug_turn_cmd == 8
+                    && road_turn_state == ROAD_STRAIGHT)
+            {
+                right_curve_seen_8_to_9 = 1;
+            }
+
+            normal_curve_state = NORMAL_CURVE_RIGHT;
+            normal_curve_exit_cnt = 0;
+            Turn_Yaw_Reset();
+
+            *stop_line = Right_curve_line();
+            A = 50;
+            return 1;
+        }
+
+        return 0;
+    }
+
+    uint8_t angle_enough = (abs_f(turn_yaw_deg) >= NORMAL_CURVE_EXIT_ANGLE_DEG);
+
+    uint8_t img_exit = 0;
+
+    if (normal_curve_state == NORMAL_CURVE_LEFT)
+    {
+        img_exit = !normal_left_seen;
+    }
+    else if (normal_curve_state == NORMAL_CURVE_RIGHT)
+    {
+        img_exit = !normal_right_seen;
+    }
+
+    if (angle_enough && img_exit)
+    {
+        *stop_line = Get_top_straightline();
+
+        if (++normal_curve_exit_cnt >= 1)
+        {
+            if (final_right_curve_active)
+            {
+                final_right_curve_active = 0;
+                Stop_Length = Length;
+                stopline_flag = 1;
+            }
+
+            normal_curve_state = NORMAL_CURVE_IDLE;
+            normal_curve_exit_cnt = 0;
+            Turn_Yaw_Stop();
+        }
+
+        Last_Turn_End_Length = Length;
+        A = 44;
+        return 1;
+    }
+
+    normal_curve_exit_cnt = 0;
+
+    if (normal_curve_state == NORMAL_CURVE_LEFT)
+    {
+        *stop_line = Left_curve_line();
+        A = 40;
+    }
+    else
+    {
+        *stop_line = Right_curve_line();
+        A = 50;
+    }
+
+    return 1;
+}
+/******************************************************************************
+ * 函数名称     :static uint16 Count_White_On_Line(int x0, int y0, int x1, int y1)
+ * 描述        : 算白�?
+ * 返回参数     :
+ ******************************************************************************/
+
+static uint16 Count_White_On_Line (int x0, int y0, int x1, int y1)
+{
+    uint16 white_cnt = 0;
+
+    int dx = my_abs(x1 - x0);
+    int dy = my_abs(y1 - y0);
+    int steps = dx > dy ? dx : dy;
+
+    if (steps == 0)
+    {
+        if (imgOSTU[y0][x0] == White)
+            return 1;
+        return 0;
+    }
+
+    for (int i = 0; i <= steps; i++)
+    {
+        int x = x0 + (x1 - x0) * i / steps;
+        int y = y0 + (y1 - y0) * i / steps;
+
+        if (x < Deal_Left || x > Deal_Right || y < Deal_Bottom || y > Deal_Top)
+            continue;
+
+        if (imgOSTU[y][x] == White)
+        {
+            white_cnt++;
+        }
+    }
+
+    return white_cnt;
+}
+/******************************************************************************
+ * 函数名称     :uint8_t top_white_too_much(void)
+ * 描述        : 算顶部一下的白点
+ * 返回参数     :
+ ******************************************************************************/
+
+uint8_t top_white_too_much (void)
+{
+    uint16 sum = 0;
+    uint8_t max_white = 0;
+
+    for (int y = Deal_Top - 8; y <= Deal_Top; y++)
+    {
+        if (y < Deal_Bottom || y > Deal_Top)
+            continue;
+
+        sum += white_num_row[y];
+
+        if (white_num_row[y] > max_white)
+        {
+            max_white = white_num_row[y];
+        }
+    }
+
+    if (max_white > 150 || sum > 70 * 8)
+    {
+        return 1;
+    }
+
+    return 0;
+}
+uint8_t Is_Seventh_Straight_Lock(void)
+{
+    float passed_length = Length - Eighth_Turn_End_Length;
+
+    return Junction_Index == 8
+        && road_turn_state == ROAD_STRAIGHT
+        && Eighth_Turn_End_Length >= 0.0f
+        && passed_length >= 0.0f
+        && passed_length < 50;
+}
+uint8_t Get_Max_White_Column_X(void)
+{
+    uint8_t max_x = XM / 2;
+    uint8_t max_white_num = 0;
+
+    for (uint16_t x = Deal_Left; x <= Deal_Right; x++)
+    {
+        if (white_num_col[x] > max_white_num)
+        {
+            max_white_num = white_num_col[x];
+            max_x = (uint8_t)x;
+        }
+        else if (white_num_col[x] == max_white_num
+              && my_abs((int)x - XM / 2)
+               < my_abs((int)max_x - XM / 2))
+        {
+            /* 并列时取最靠近图像中心的一列 */
+            max_x = (uint8_t)x;
+        }
+    }
+
+    return max_x;
+}
+uint8_t Is_Last_Junction_Recognized(void)
+{
+    const uint8_t cmd_len =
+            sizeof(Turn_Command) / sizeof(Turn_Command[0]);
+
+    return Junction_Index >= cmd_len;
+}

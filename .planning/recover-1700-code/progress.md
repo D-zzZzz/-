@@ -1,0 +1,37 @@
+# Progress: recover code from around 17:00
+
+## 2026-07-13
+- Ran planning session catch-up.
+- Confirmed prior root planning files are unrelated to this recovery task.
+- Created a separate recovery plan; no source files have been changed.
+- Initial inventory narrowed changes in `code`/`user`; a later full-tree pass found one additional camera header and corrected the recovery set.
+- Confirmed the `.git` directory contains no recoverable repository data.
+- Located the exact AURIX workspace from `RECENT_WORKSPACES`: `E:\\TCB\\2`.
+- Located its Eclipse metadata at `E:\\TCB\\2\\.metadata`; proceeding to local-history extraction.
+- Found complete raw C source snapshots in Eclipse local history, including a `deal_image.c` entry exactly at 17:29:09.
+- Found the latest pre-17:29 `cpu0_main.c` entries at 16:53, so the likely 17:29 recovery set is now identifiable.
+- Verified the raw history files by reading their C contents and comparing them with the current files.
+- Confirmed the recovery set contains substantive changes but remains limited to two source files.
+- Reviewed exact diffs and confirmed the post-17:29 edits include multiple control-path changes capable of destabilizing or disabling expected track behavior.
+- Searched for ordinary duplicate source backups under `E:\\TCB`; none matched this project/time.
+- Full-project source inventory found `libraries\\zf_device\\zf_device_mt9v03x.h` changed at 17:42:54; it is now included in recovery analysis.
+- No same-day `.cproject` local-history entry was found; its 19:07 timestamp appears build/IDE generated and it is not treated as source recovery evidence.
+- Read the current camera header parameters and attempted the first local-history fingerprint; retrying with stable macro names because the guard did not match stored encoding/content.
+- Located and diffed the camera-header history; identified exposure 142 as the value present at 17:29.
+- Completed identification of all source files needed to reconstruct the 17:29 project state.
+- Preserved the three 17:29 recovery files and the three current files under `.recovery\\2026-07-13_1729`.
+- Verified all six copies with SHA-256; all source/copy pairs matched.
+- One PowerShell hash-report pipeline had a parser error; corrected it by collecting the loop output before piping. No files were affected.
+- Final verification confirmed all three active source files still match their current-backup snapshots; discovery and packaging did not alter the active project.
+- User authorized active restoration to 17:29 and requested a precise before/after list.
+- Session catch-up was completed. `git diff --stat` cannot be used because `.git` is empty; restoration verification will use SHA-256 and no-index diffs.
+- Applied the complete 17:29 logical diff to `code\\deal_image.c` with a surgical patch.
+- Text diff against the target is now empty, but SHA-256 still differs, indicating line-ending or byte-format normalization from patch application. The next step is byte-format verification before declaring exact restoration.
+- Byte inspection confirmed the remaining mismatch was only CRLF representation on 44 patched lines.
+- Restored all three files from the validated snapshot copies and refreshed their source timestamps.
+- SHA-256 verification passed for all three active files; each is now byte-identical to its 17:29 recovery target.
+- Collected exact restored line numbers for the requested before/after report.
+- Attempted an incremental Tasking build. It selected restored `cpu0_main.c` and `deal_image.c`, confirming timestamps forced recompilation, then stopped on standalone-license error F104.
+- Final post-build-attempt hash check passed for all three active source files.
+- Confirmed ELF/HEX/MAP remain the 19:08 artifacts; they must not be flashed as the restored build. AURIX Studio must rebuild and then download the new image.
+- Recovery task completed with only the three validated source files changed.
